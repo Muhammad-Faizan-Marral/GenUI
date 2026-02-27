@@ -39,7 +39,9 @@ function DeleteModal({ project, onConfirm, onCancel, deleting }) {
           Delete Project?
         </h3>
         <p className="text-xs text-zinc-500 text-center mb-5 leading-relaxed">
-          <span className="text-zinc-300">"{project.project_title}"</span>{" "}
+          <span className="text-zinc-300">
+            &quot;{project.project_title}&quot;
+          </span>{" "}
           permanently delete ho jayega. Yeh action undo nahi ho sakta.
         </p>
         <div className="flex gap-2">

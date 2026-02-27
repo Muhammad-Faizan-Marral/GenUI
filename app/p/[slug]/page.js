@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState, use } from "react"; // 1. Import use
+import { useEffect, useState, use } from "react";
 import parse from "html-react-parser";
 import DOMPurify from "dompurify";
 import * as LucideIcons from "lucide-react";
+import Script from "next/script";
 
 import { getProjectBySlug } from "../../services/projectService";
+import Loading from "../../components/Loading";
 
-export default function Page({ params: paramsPromise }) { // 2. Rename for clarity
-  // 3. Unwrap the params promise
+export default function Page({ params: paramsPromise }) {
   const params = use(paramsPromise); 
   const slug = params.slug;
 
@@ -25,26 +26,43 @@ export default function Page({ params: paramsPromise }) { // 2. Rename for clari
     };
 
     if (slug) loadProject();
-  }, [slug]); // 4. Use the unwrapped slug as dependency
+  }, [slug]);
 
-  if (!project) return <div>Loading...</div>;
+  if (!project) return <Loading />;
 
-  const cleanHTML = DOMPurify.sanitize(project.html_design);
+  // FIXED: Added "className" (and lowercased "classname") to allowed attributes
+  const cleanHTML = DOMPurify.sanitize(project.html_design, {
+    ADD_TAGS: ["icon"],
+    ADD_ATTR: ["name", "class", "className", "classname", "id", "style"], 
+  });
 
   const options = {
     replace(domNode) {
       if (domNode.name === "icon") {
         const name = domNode.attribs?.name;
-        const Icon = LucideIcons[name];
-        return Icon ? <Icon size={24} /> : null;
+        if (!name) return null;
+        
+        // Capitalize for Lucide
+        const Icon = LucideIcons[name] || LucideIcons[name.charAt(0).toUpperCase() + name.slice(1)];
+        
+        // FIXED: Check for both 'classname' and 'class' because parsers lowercase attributes
+        const className = domNode.attribs?.classname || domNode.attribs?.class || ""; 
+        
+        return Icon ? <Icon className={className} size={24} /> : null;
       }
     },
   };
 
   return (
-    <div>
-      <h1>{project.project_title}</h1>
-      <div>{parse(cleanHTML, options)}</div>
+    <div className="min-h-screen w-full"> 
+      
+      {/* FIXED: Changed strategy to 'afterInteractive' (default). beforeInteractive breaks inside page.js */}
+      <Script src="https://cdn.tailwindcss.com" strategy="afterInteractive" />
+
+      <div className="w-full">
+        {parse(cleanHTML, options)}
+      </div>
     </div>
   );
 }
+

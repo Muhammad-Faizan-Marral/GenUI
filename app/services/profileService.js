@@ -7,11 +7,13 @@ export async function getProfile(userId) {
     .from("profiles")
     .select("*")
     .eq("id", userId)
-    .single();
+    .maybeSingle();
+
 
   if (error) {
+    console.log(error)
     throw new Error(error.message);
   }
-  
+  console.log("profileService : "+ data)
   return data; 
 }

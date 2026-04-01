@@ -5,21 +5,9 @@ import { createClient } from "../../lib/supabase/client";
 import { useProfile } from "../../hooks/useProfile";
 import { useRouter } from "next/navigation";
 import { getUserId } from "../../services/uiService";
-
-import {
-  Sparkles,
-  LogOut,
-  ExternalLink,
-  LayoutGrid,
-  User,
-  ChevronRight,
-  Layers,
-  FolderOpen,
-  Copy,
-  Check,
-  Trash2,
-} from "lucide-react";
+import {Sparkles,LogOut,ExternalLink,LayoutGrid,User,ChevronRight,Layers,FolderOpen,Copy,Check,Trash2,} from "lucide-react";
 import Link from "next/link";
+
 
 // ─── Delete Confirm Modal ─────────────────────────────────────────────────────
 function DeleteModal({ project, onConfirm, onCancel, deleting }) {
@@ -169,12 +157,12 @@ export default function ProfilePage() {
 
   const supabase = createClient();
   const { profile } = useProfile();
-
+  console.log("Page of profile data is :" + profile)
   useEffect(() => {
     async function fetchProjects() {
       try {
         const userId = await getUserId();
-
+        
         const { data, error } = await supabase
           .from("projects")
           .select("id, project_title, slug, created_at")

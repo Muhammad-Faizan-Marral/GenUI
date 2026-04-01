@@ -326,23 +326,14 @@ function AuthForm() {
         </div>
       ) : (
         <>
-          {/* OAuth buttons */}
-          <div className="grid grid-cols-2 gap-3 mb-6">
-            <button className="flex items-center justify-center gap-2 bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.09] rounded-xl py-2.5 text-sm text-zinc-300 transition-all duration-200 hover:border-white/[0.15]">
-              <Github size={15} />
-              GitHub
-            </button>
-            <button className="flex items-center justify-center gap-2 bg-white/[0.04] hover:bg-white/[0.07] border border-white/[0.09] rounded-xl py-2.5 text-sm text-zinc-300 transition-all duration-200 hover:border-white/[0.15]">
-              <Chrome size={15} />
-              Google
-            </button>
-          </div>
+            {/* OAuth buttons */}
+            
 
           {/* Divider */}
           <div className="flex items-center gap-3 mb-6">
             <div className="flex-1 h-px bg-white/[0.07]" />
             <span className="text-[11px] text-zinc-600">
-              or continue with email
+              Continue with email
             </span>
             <div className="flex-1 h-px bg-white/[0.07]" />
           </div>

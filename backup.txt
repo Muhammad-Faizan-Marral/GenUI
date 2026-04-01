@@ -1,26 +1,197 @@
+UISERVICE
+import { createClient } from "../lib/supabase/client";
+
+/**
+ * Get currently logged-in user's ID
+ * @returns {string} userId
+ */
+
+export async function getUserId() {
+  const supabase = createClient();
+
+  const {
+    data: { user },
+    error,
+  } = await supabase.auth.getUser();
+
+  if (error) {
+    throw new Error("User not authenticated");
+  }
+
+  if (!user) {
+    throw new Error("No active session found");
+  }
+
+  return user.id;
+}
+
+export async function generateUI(UserPrompt) {
+  const systemPrompt = `You are a world-class Senior UI/UX Designer and SaaS Product Designer.
+Your job is to generate a PREMIUM, MODERN, HIGH-END website UI using Tailwind CSS.
+
+CRITICAL RULES (MUST FOLLOW OR THE SYSTEM WILL CRASH):
+1. Output ONLY a raw string of code. NO Markdown formatting (do not wrap in \`\`\`html or \`\`\`).
+2. Use \`className="..."\` instead of \`class="..."\` (This is for a Next.js environment).
+3. NO HTML comments () and NO JavaScript comments.
+4. EVERY tag must be strictly and properly closed. Self-closing tags must end with "/>" (e.g., <img />, <input />).
+5. Wrap EVERYTHING inside a SINGLE root <div>.
+6. Do NOT include <html>, <head>, or <body>.
+7. Do NOT include JavaScript, functionality, logic, forms handling, or scripts.
+8. Do NOT include imports or React components.
+9. Do NOT write explanations.
+10. Self-closing tags MUST be valid (e.g., <img />).
+11. Must use className instead of class because we use Next.js
+12. Use lucid-react-icons not used images 
+
+DESIGN QUALITY:
+Act as a World-Class UI/UX Designer and Senior Frontend Developer. 
+Your goal: Create a high-end, premium  design in a single HTML block.
+
+TECHNICAL SPECIFICATIONS FOR MY REACT COMPONENT:
+1. USE CUSTOM ICON TAGS: Instead of SVGs, use <icon name="IconName" class="your-tailwind-classes" /> for ALL icons. (Example: <icon name="Github" class="text-white" />). This is mandatory for my parser.
+
+OUTPUT FORMAT:
+- Provide ONLY the raw HTML content inside the body. 
+- Do NOT include <html> or <body> tags. 
+- Ensure all Tailwind classes are standard (utility-first).
+- Start the response directly with the HTML.
+
+
+ICON SYSTEM (VERY IMPORTANT):
+Use lucide-react icons ONLY in this EXACT custom element format:
+<icon name="IconName" className="..."></icon>
+
+DO NOT use: <IconName /> or <Github></Github>
+ONLY allowed format: <icon name="Github" className="text-white w-6 h-6"></icon>
+Icon names MUST be valid lucide-react icon names and case-sensitive.
+
+Remember: YOU ARE GENERATING DESIGN ONLY. Just beautiful, structured, responsive Tailwind JSX/HTML.`;
+
+  const apis = [callGroq, callPuter];
+
+  for (const apiFn of apis) {
+    try {
+      const result = await apiFn(UserPrompt, systemPrompt);
+      if (result) {
+        // Remove markdown formatting just in case the AI still disobeys
+        return result.replace(/^```(html|jsx)?\n|\n```$/g, "").trim();
+      }
+    } catch (err) {
+      console.error(`API failed, trying next...`, err);
+    }
+  }
+
+  throw new Error("All APIs failed.");
+}
+
+async function callGroq(userPrompt, systemPrompt) {
+  const res = await fetch("/api/chat", {
+    method: "POST",
+
+    headers: { "Content-Type": "application/json" },
+
+    body: JSON.stringify({ message: userPrompt, system: systemPrompt }),
+  });
+
+  // Exact error dekho
+
+  if (!res.ok) {
+    const errorBody = await res.text();
+
+    console.error("Groq API HTTP Error:", res.status, errorBody);
+
+    throw new Error(`Groq API failed: ${res.status} - ${errorBody}`);
+  }
+
+  const data = await res.json();
+
+  console.log("Groq Raw Reply:", data.reply); // Response dekho
+
+  const parsed = parseResponse(data.reply);
+
+  if (!parsed) throw new Error("Groq response parse nahi hua");
+
+  return parsed;
+}
+
+async function callPuter(userPrompt, systemPrompt) {
+  if (typeof window === "undefined" || !window.puter) {
+    throw new Error("Puter not available");
+  }
+
+  const res = await window.puter.ai.chat(
+    `${systemPrompt}\n\nUser Prompt: ${userPrompt}`,
+
+    { model: "gpt-4o-mini" },
+  );
+
+  const text = res?.toString();
+
+  if (!text) throw new Error("Puter returned empty response");
+
+  return parseResponse(text);
+}
+
+function parseResponse(rawText) {
+  if (!rawText) return null;
+
+  // Agar AI ne ```html ... ``` ke andar code diya hai, to use extract karein
+
+  let cleanCode = rawText;
+
+  const markdownMatch = rawText.match(/```(?:html|xml)?([\s\S]*?)```/);
+
+  if (markdownMatch) {
+    cleanCode = markdownMatch[1].trim();
+  } else {
+    cleanCode = rawText.trim();
+  }
+
+  // Check karein ke kam az kam <div> se start ho raha hai
+
+  if (cleanCode.includes("<div")) {
+    return cleanCode;
+  }
+
+  return null;
+}
+
+function isValidStructure(parsed) {
+  return (
+    Array.isArray(parsed) && parsed[0]?.projectTitle && parsed[0]?.html_design
+  );
+}
+
+
+Generate/Page.jsx
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Sparkles,
+  Wand2,
+  Copy,
+  Check,
   RotateCcw,
   ChevronRight,
+  Cpu,
+  Code2,
+  Star,
   Zap,
   ArrowRight,
   Layers,
   MousePointer2,
   Box,
   User,
-  AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { generateUI, getProfilId, getUserId, uiLayout } from "../../services/uiService";
-import { createProject } from "../../services/dbService";
+import { generateUI, getUserId, uiLayout } from "../../services/uiService";
+import { createProject, slugValue } from "../../services/projectService";
 import { useProfile } from "../../hooks/useProfile";
 import { LoadingScreen } from "../../components/LoadingScreen";
 import { ResultCard } from "../../components/ResultCard";
-import { masterService } from "../../services/masterService";
 
+// ─── Loading steps shown during generation ────────────────────────────────────
 const LOADING_STEPS = [
   { text: "Parsing your prompt…", icon: "📝" },
   { text: "Selecting components…", icon: "🧩" },
@@ -29,13 +200,14 @@ const LOADING_STEPS = [
   { text: "Finalizing code…", icon: "✨" },
 ];
 
+// ─── Example prompts ──────────────────────────────────────────────────────────
 const EXAMPLES = [
   "A developer portfolio landing page with hero, skills section, and project cards",
   "A SaaS pricing page with 3 plans, feature list, and monthly/yearly toggle",
   "A restaurant website with hero banner, menu grid, and reservation section",
   "A dashboard UI with sidebar navigation, stats cards, and recent activity table",
 ];
-
+// ─── Output metadata ──────────────────────────────────────────────────────────
 const OUTPUTS = {
   pricing: { label: "Pricing Page", previewId: "pricing-ui-x7k2m" },
   hero: { label: "Hero Section", previewId: "hero-ui-a3p9q" },
@@ -43,12 +215,12 @@ const OUTPUTS = {
   login: { label: "Login Form", previewId: "login-ui-c8s4w" },
 };
 
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function PromptPage() {
   const [phase, setPhase] = useState("prompt");
   const [prompt, setPrompt] = useState("");
   const [loadingStep, setLoadingStep] = useState(0);
   const [output, setOutput] = useState(null);
-  const [error, setError] = useState(null);
   const textareaRef = useRef(null);
   const [projectViewUrl, setProjectViewUrl] = useState();
   const { profile } = useProfile();
@@ -62,43 +234,49 @@ export default function PromptPage() {
       return OUTPUTS.dashboard;
     return OUTPUTS.login;
   };
-  // Master Working
+
   const handleGenerate = async () => {
     if (!prompt.trim()) return;
-    setError(null);
+    setOutput(detectOutput(prompt));
     setPhase("loading");
     setLoadingStep(0);
 
-    for (let i = 0; i < 5; i++) {
-      await new Promise((r) => setTimeout(r, 150));
+    for (let i = 0; i < LOADING_STEPS.length; i++) {
+      await new Promise((r) => setTimeout(r, 700));
       setLoadingStep(i + 1);
     }
 
-    try {
-      const userId = await getUserId();
-      const profileId = await getProfilId(userId)
-      const aiResponse = await masterService(prompt);
+ try {
+  const userId = await getUserId(); 
+  const aiResponse = await generateUI(prompt); // This returns raw HTML string
 
-      if (!aiResponse || Object.keys(aiResponse).length === 0) {
-        throw new Error("Generating Issue: Empty Response");
-      }
-      console.log("Final Master JSON:", aiResponse);
-      const savedInDB = await createProject(profileId,aiResponse);
-      console.log(savedInDB)
-      await new Promise((r) => setTimeout(r, 400));
-      setPhase("done");
-    } catch (err) {
-      console.error("Generation Error:", err);
-      setPhase("prompt");
+  if (!aiResponse) {
+    throw new Error("AI returned an empty response");
+  }
 
-      if (err.message.includes("JSON_PARSE_FAILED")) {
-        setError("AI generated invalid data. Please try a simpler prompt.");
-      } else if (err.message.startsWith("ALL_FAILED:")) {
-        setError("AI models are busy. Try again in a moment.");
-      } else {
-        setError("Something went wrong. Please check your connection.");
-      }
-    }
+  // Since aiResponse is raw HTML, we create the object manually
+  const projectData = {
+    // We use the user's prompt as a title since the AI only gave us HTML
+    projectTitle: prompt.substring(0, 20) || "New Project", 
+    html_design: aiResponse, 
+  };
+
+  const savedProject = await createProject(
+    userId,
+    profile.username,
+    projectData
+  );
+
+  const slug = savedProject.slug;
+  setProjectViewUrl(`/p/${slug}`);
+
+} catch (error) {
+  console.error("Error generating or saving project:", error.message);
+  alert("Failed to generate UI: " + error.message);
+}
+
+    await new Promise((r) => setTimeout(r, 400));
+    setPhase("done");
   };
 
   const handleReset = () => {
@@ -106,15 +284,17 @@ export default function PromptPage() {
     setPrompt("");
     setOutput(null);
     setLoadingStep(0);
-    setError(null);
   };
 
   return (
     <div className="min-h-screen bg-[#080809] text-white antialiased flex flex-col">
       {/* ── Background ── */}
       <div className="fixed inset-0 pointer-events-none overflow-hidden">
+        {/* Main violet glow */}
         <div className="absolute top-[-10%] left-1/2 -translate-x-1/2 w-[900px] h-[600px] bg-violet-700/10 rounded-full blur-[160px]" />
+        {/* Secondary blue hint */}
         <div className="absolute bottom-[-5%] right-[-10%] w-[500px] h-[500px] bg-indigo-800/8 rounded-full blur-[120px]" />
+        {/* Dot grid */}
         <div
           className="absolute inset-0 opacity-[0.018]"
           style={{
@@ -123,6 +303,7 @@ export default function PromptPage() {
             backgroundSize: "40px 40px",
           }}
         />
+        {/* Top edge shimmer line */}
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-violet-500/30 to-transparent" />
       </div>
 
@@ -187,11 +368,15 @@ export default function PromptPage() {
         {/* ══ PROMPT PHASE ══ */}
         {phase === "prompt" && (
           <div className="flex-1 flex flex-col items-center justify-center px-5 py-16">
+            {/* ── Hero copy ── */}
             <div className="text-center mb-12 max-w-2xl">
+              {/* Eyebrow badge */}
               <div className="inline-flex items-center gap-2 bg-violet-950/60 border border-violet-500/20 rounded-full px-4 py-1.5 text-[11px] text-violet-400/80 mb-7 backdrop-blur-sm">
                 <span className="w-1.5 h-1.5 rounded-full bg-violet-400 animate-pulse" />
                 AI-powered UI generation · Now in beta
               </div>
+
+              {/* Heading */}
               <h1 className="text-5xl sm:text-6xl font-bold tracking-tight leading-[1.08] mb-6">
                 <span className="text-white">Describe it.</span>
                 <br />
@@ -202,10 +387,14 @@ export default function PromptPage() {
                   We build it.
                 </span>
               </h1>
+
+              {/* Subheading */}
               <p className="text-zinc-500 text-base sm:text-lg leading-relaxed max-w-md mx-auto">
                 Type a UI idea in plain English — get clean, production-ready
                 React + Tailwind code in seconds.
               </p>
+
+              {/* Stats row */}
               <div className="flex items-center justify-center gap-6 mt-8 mb-0">
                 {[
                   { value: "12k+", label: "UIs generated" },
@@ -221,16 +410,16 @@ export default function PromptPage() {
             </div>
 
             {/* ── Prompt box ── */}
-            <div className="w-full max-w-2xl mb-3">
+            <div className="w-full max-w-2xl mb-5">
               <div className="relative rounded-2xl border border-white/[0.08] bg-white/[0.025] focus-within:border-violet-500/40 focus-within:bg-white/[0.04] transition-all duration-300 overflow-hidden shadow-2xl shadow-black/40 backdrop-blur-sm">
+                {/* Top glow on focus */}
+                <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-violet-500/0 to-transparent group-focus-within:via-violet-500/50 transition-all" />
+
                 <textarea
                   ref={textareaRef}
                   rows={4}
                   value={prompt}
-                  onChange={(e) => {
-                    setPrompt(e.target.value);
-                    if (error) setError(null); // clear error on typing
-                  }}
+                  onChange={(e) => setPrompt(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey))
                       handleGenerate();
@@ -238,6 +427,7 @@ export default function PromptPage() {
                   placeholder="e.g. A pricing page with 3 plans and a yearly/monthly toggle..."
                   className="w-full bg-transparent text-sm text-white placeholder:text-zinc-700 p-6 pb-4 outline-none resize-none leading-relaxed"
                 />
+
                 <div className="flex items-center justify-between px-5 py-4 border-t border-white/[0.05] bg-black/20">
                   <div className="flex items-center gap-4">
                     <span className="text-[11px] text-zinc-700">
@@ -263,19 +453,6 @@ export default function PromptPage() {
                   </button>
                 </div>
               </div>
-
-              {/* ── Error message ── */}
-              {error && (
-                <div className="mt-3 flex items-start gap-2.5 bg-red-500/8 border border-red-500/20 rounded-xl px-4 py-3">
-                  <AlertCircle
-                    size={14}
-                    className="text-red-400 mt-0.5 shrink-0"
-                  />
-                  <p className="text-xs text-red-400 leading-relaxed">
-                    {error}
-                  </p>
-                </div>
-              )}
             </div>
 
             {/* ── Example prompts ── */}

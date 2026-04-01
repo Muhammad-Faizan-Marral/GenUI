@@ -1,6 +1,6 @@
 "use client";
 
-import { Zap,ChevronRight } from "lucide-react";
+import { Zap, ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { PromptIllustration } from "./PromptIllustration";
 

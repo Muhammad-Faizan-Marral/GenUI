@@ -1,23 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import {
-  Sparkles,
-  Wand2,
-  Copy,
-  Check,
-  RotateCcw,
-  ChevronRight,
-  Cpu,
-  Code2,
-  Star,
-  Zap,
-  ArrowRight,
-  Layers,
-  MousePointer2,
-  Box,
-  User,
-} from "lucide-react";
+import {Sparkles,Wand2,Copy,Check,RotateCcw,ChevronRight,Cpu,Code2,Star,Zap,ArrowRight,Layers,MousePointer2,Box,User} from "lucide-react";
 import Link from "next/link";
 import { generateUI, getUserId, uiLayout } from "../../services/uiService";
 import { createProject, slugValue } from "../../services/projectService";
@@ -69,49 +53,56 @@ export default function PromptPage() {
     return OUTPUTS.login;
   };
 
-  const handleGenerate = async () => {
-    if (!prompt.trim()) return;
-    setOutput(detectOutput(prompt));
-    setPhase("loading");
-    setLoadingStep(0);
+ const handleGenerate = async () => {
+  if (!prompt.trim()) return;
 
-    for (let i = 0; i < LOADING_STEPS.length; i++) {
-      await new Promise((r) => setTimeout(r, 700));
-      setLoadingStep(i + 1);
+  setPhase("loading");
+  setLoadingStep(0);
+
+  // Loading animation steps
+  const stepInterval = setInterval(() => {
+    setLoadingStep((prev) => {
+      if (prev >= LOADING_STEPS.length - 1) {
+        clearInterval(stepInterval);
+        return prev;
+      }
+      return prev + 1;
+    });
+  }, 700);
+
+  try {
+    const userId = await getUserId();
+    const aiResponse = await generateUI(prompt);
+
+    if (!aiResponse) {
+      throw new Error("AI returned an empty response");
     }
 
- try {
-  const userId = await getUserId(); 
-  const aiResponse = await generateUI(prompt); // This returns raw HTML string
+    const projectData = {
+      projectTitle: prompt.substring(0, 50) || "New Project",
+      html_design: aiResponse,
+    };
 
-  if (!aiResponse) {
-    throw new Error("AI returned an empty response");
-  }
+    const savedProject = await createProject(
+      userId,
+      profile.username,
+      projectData
+    );
 
-  // Since aiResponse is raw HTML, we create the object manually
-  const projectData = {
-    // We use the user's prompt as a title since the AI only gave us HTML
-    projectTitle: prompt.substring(0, 20) || "New Project", 
-    html_design: aiResponse, 
-  };
+    setProjectViewUrl(`/p/${savedProject.slug}`);
+    setOutput(detectOutput(prompt));
 
-  const savedProject = await createProject(
-    userId,
-    profile.username,
-    projectData
-  );
-
-  const slug = savedProject.slug;
-  setProjectViewUrl(`/p/${slug}`);
-
-} catch (error) {
-  console.error("Error generating or saving project:", error.message);
-  alert("Failed to generate UI: " + error.message);
-}
-
+    clearInterval(stepInterval);
     await new Promise((r) => setTimeout(r, 400));
     setPhase("done");
-  };
+
+  } catch (error) {
+    console.error("Error:", error.message);
+    clearInterval(stepInterval);
+    alert("Failed to generate UI: " + error.message);
+    setPhase("prompt"); // Error pe wapas prompt par le jao
+  }
+};
 
   const handleReset = () => {
     setPhase("prompt");

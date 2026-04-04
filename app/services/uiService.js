@@ -1,176 +1,315 @@
-import { createClient } from "../lib/supabase/client";
+"use client";
 
-/**
- * Get currently logged-in user's ID
- * @returns {string} userId
- */
+import { createClient } from "../lib/supabase/client";
 
 export async function getUserId() {
   const supabase = createClient();
-
   const {
     data: { user },
     error,
   } = await supabase.auth.getUser();
-
-  if (error) {
-    throw new Error("User not authenticated");
-  }
-
-  if (!user) {
-    throw new Error("No active session found");
-  }
-
+  if (error) throw new Error("User not authenticated");
+  if (!user) throw new Error("No active session found");
   return user.id;
 }
 
-export async function generateUI(UserPrompt) {
-  const systemPrompt = `You are a world-class Senior UI/UX Designer and SaaS Product Designer.
-Your job is to generate a PREMIUM, MODERN, HIGH-END website UI using Tailwind CSS.
+// ─── Step 1: Schema Generate karo ────────────────────────────────────────────
+async function generateSchema(userPrompt) {
+  const schemaPrompt = `You are a UI architect. Analyze the user's request and return ONLY a valid JSON schema. No markdown, no backticks, no explanation. Start with { and end with }.
 
-CRITICAL RULES (MUST FOLLOW OR THE SYSTEM WILL CRASH):
-1. Output ONLY a raw string of code. NO Markdown formatting (do not wrap in \`\`\`html or \`\`\`).
-2. Use \`className="..."\` instead of \`class="..."\` (This is for a Next.js environment).
-3. NO HTML comments () and NO JavaScript comments.
-4. EVERY tag must be strictly and properly closed. Self-closing tags must end with "/>" (e.g., <img />, <input />).
-5. Wrap EVERYTHING inside a SINGLE root <div>.
-6. Do NOT include <html>, <head>, or <body>.
-7. Do NOT include JavaScript, functionality, logic, forms handling, or scripts.
-8. Do NOT include imports or React components.
-9. Do NOT write explanations.
-10. Self-closing tags MUST be valid (e.g., <img />).
-11. Must use className instead of class because we use Next.js
-12. Use lucid-react-icons not used images 
+USER REQUEST: "${userPrompt}"
 
-DESIGN QUALITY:
-Act as a World-Class UI/UX Designer and Senior Frontend Developer. 
-Your goal: Create a high-end, premium portfolio design in a single HTML block.
+Return this exact JSON structure filled with real values:
+{
+  "meta": {
+    "version": "6.0",
+    "purpose": "Master schema for Gen UI — Next.js + Tailwind CSS step-by-step website generation",
+    "strict_mode": true,
+    "premium_output": true,
+    "instructions": "AI must fill ALL fields completely when the user submits a prompt. This JSON is generated once upfront. The frontend then loops through sections array in order, sending one section at a time to the AI for code generation."
+  },
 
-CORE DESIGN RULES:
-- VISUAL STYLE: Premium SaaS/Dark-mode aesthetic. Use deep blacks (#0a0a0a) and rich accents.
-- MODERN EFFECTS: Massive use of Glassmorphism (backdrop-blur), soft layered shadows (shadow-2xl), and glowing borders (ring-1 ring-white/10).
-- GRADIENTS: Use vibrant, trendy gradients like 'from-indigo-500 via-purple-500 to-pink-500' for text and buttons.
-- SPACING: Use generous whitespace (paddings/margins) for a breathable, luxury feel. Perfect visual hierarchy.
+  "input": {
+    "prompt": "string — the original user prompt e.g. 'create a dark portfolio site for a developer'"
+  },
 
-TECHNICAL SPECIFICATIONS FOR MY REACT COMPONENT:
-1. USE CUSTOM ICON TAGS: Instead of SVGs, use <icon name="IconName" class="your-tailwind-classes" /> for ALL icons. (Example: <icon name="Github" class="text-white" />). This is mandatory for my parser.
-2. LAYOUT: 
-   - Sticky Navbar with blurred glass effect.
-   - Hero Section: Big bold typography, glowing background blobs (absolute positioning), and a premium 'Call to Action'.
-   - Projects: 3D-hover effect cards with sleek tags and glass-morphism backgrounds.
-   - Experience: Minimalist timeline or grid with micro-interactions.
-   - Contact: A clean, centered card with modern input fields (focus:ring-2).
-3. RESPONSIVENESS: Mobile-first approach. Ensure columns stack beautifully on small screens.
-4. VARIETY: Every time you run this, change the layout structure (e.g., Grid vs. Bento Box style) but keep the quality "Top Notch".
+  "project": {
+    "name": "string — e.g. 'Alex Dev Portfolio'",
+    "type": "enum: portfolio | ecommerce | landing | blog | saas | agency | restaurant",
+    "style": "string — e.g. 'dark glassmorphism', 'minimal clean', 'bold editorial'",
+    "tone": "string — e.g. 'professional', 'playful', 'luxury'",
+    "platform": "next.js",
+    "font_import": "string — Google Fonts @import URL e.g. 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap'"
+  },
 
-OUTPUT FORMAT:
-- Provide ONLY the raw HTML content inside the body. 
-- Do NOT include <html> or <body> tags. 
-- Ensure all Tailwind classes are standard (utility-first).
-- Start the response directly with the HTML.
-
-
-ICON SYSTEM (VERY IMPORTANT):
-Use lucide-react icons ONLY in this EXACT custom element format:
-<icon name="IconName" className="..."></icon>
-
-DO NOT use: <IconName /> or <Github></Github>
-ONLY allowed format: <icon name="Github" className="text-white w-6 h-6"></icon>
-Icon names MUST be valid lucide-react icon names and case-sensitive.
-
-Remember: YOU ARE GENERATING DESIGN ONLY. Just beautiful, structured, responsive Tailwind JSX/HTML.`;
-
-  const apis = [callGroq, callPuter];
-
-  for (const apiFn of apis) {
-    try {
-      const result = await apiFn(UserPrompt, systemPrompt);
-      if (result) {
-        // Remove markdown formatting just in case the AI still disobeys
-        return result.replace(/^```(html|jsx)?\n|\n```$/g, "").trim();
-      }
-    } catch (err) {
-      console.error(`API failed, trying next...`, err);
+  "design_system": {
+    "colors": {
+      "primary": "#hex",
+      "secondary": "#hex",
+      "accent": "#hex",
+      "background": "#hex",
+      "surface": "#hex",
+      "surface_2": "#hex",
+      "text_primary": "#hex",
+      "text_secondary": "#hex",
+      "text_muted": "#hex",
+      "border": "rgba(255,255,255,0.1)",
+      "error": "#hex",
+      "success": "#hex"
+    },
+    "typography": {
+      "font_family": "string — e.g. 'Inter, sans-serif'",
+      "heading_weight": "700",
+      "body_weight": "400",
+      "base_size": "16px",
+      "scale": "enum: tight | normal | loose"
+    },
+    "ui": {
+      "border_radius": "string — e.g. '12px'",
+      "border_radius_sm": "string — e.g. '6px'",
+      "border_radius_lg": "string — e.g. '20px'",
+      "shadow": "string — e.g. '0 4px 24px rgba(0,0,0,0.2)'",
+      "border_style": "string — e.g. '1px solid rgba(255,255,255,0.1)'"
+    },
+    "motion": {
+      "animation_style": "enum: none | subtle | smooth | energetic",
+      "duration_fast": "150ms",
+      "duration_base": "300ms",
+      "duration_slow": "600ms",
+      "easing": "string — e.g. 'cubic-bezier(0.4, 0, 0.2, 1)'"
     }
+  },
+
+  "layout_globals": {
+    "navbar": {
+      "height": "string — e.g. '64px'. This value is critical — all sections must account for it to prevent overlap.",
+      "position": "fixed",
+      "z_index": 50,
+      "background": "string — e.g. 'rgba(10,10,10,0.85)'",
+      "backdrop_blur": true
+    },
+    "page_wrapper": {
+      "padding_top": "string — MUST equal navbar.height e.g. 'pt-16'. This prevents the hero from hiding behind the fixed navbar.",
+      "max_width": "string — e.g. '1280px'",
+      "horizontal_padding": "string — e.g. 'px-4 md:px-8 lg:px-16'"
+    },
+    "section_defaults": {
+      "padding_y": "string — e.g. 'py-20 md:py-28'",
+      "padding_x": "string — e.g. 'px-4 md:px-8 lg:px-16'",
+      "max_width": "string — e.g. 'max-w-7xl mx-auto'"
+    }
+  },
+
+  "generation_control": {
+    "total_sections": "number — total count of sections in the sections array below",
+    "sections_list": [
+      "string — ordered list of section IDs e.g. ['navbar', 'hero', 'about', 'skills', 'projects', 'contact', 'footer']"
+    ],
+    "done": false,
+    "done_rule": "The frontend reads this field after receiving each AI response. When done is true, stop the generation loop. The AI sets done to true only when returning the final section's code."
+  },
+
+  "sections": [
+    {
+      "id": "string — unique identifier e.g. 'navbar'",
+      "name": "string — human readable e.g. 'Navigation Bar'",
+      "order": 1,
+      "is_last": false,
+      "layout": {
+        "type": "enum: full_width | contained | split | grid | centered",
+        "min_height": "string — e.g. '100vh' for hero, 'auto' for everything else",
+        "position": "enum: static | fixed | sticky — navbar is fixed, all others static",
+        "z_index": "number | null — 50 for navbar only, null for all others",
+        "padding_top_override": "string | null — only set if this section needs special top padding beyond the page_wrapper default"
+      },
+      "components": [
+        "string — list of UI components in this section e.g. 'Logo', 'NavLinks', 'CTAButton', 'MobileMenu'"
+      ],
+      "responsive": {
+        "mobile": "string — e.g. 'hamburger menu, stacked layout'",
+        "tablet": "string — e.g. 'condensed nav'",
+        "desktop": "string — e.g. 'full horizontal nav with CTA'"
+      },
+      "content": {
+        "heading": "string | null",
+        "subheading": "string | null",
+        "body": "string | null",
+        "cta_label": "string | null",
+        "cta_href": "string | null",
+        "items": []
+      },
+      "style": {
+        "background": "string — use a value from design_system.colors or a specific hex/rgba",
+        "custom_tailwind": "string | null — any extra Tailwind classes specific to this section"
+      }
+    }
+  ],
+
+  "render_rules": {
+    "framework": "next.js + tailwindcss",
+    "code_style": {
+      "one_root_div_only": true,
+      "use_className_not_class": true,
+      "no_html_comments": true,
+      "svg_props_camelCase": true,
+      "inline_style_format": "style={{ color: 'red', fontSize: '16px' }}",
+      "include_use_client_when_needed": true,
+      "include_react_imports_when_needed": true
+    },
+    "layout_rules": {
+      "navbar_is_fixed_z50": true,
+      "hero_must_have_padding_top_equal_to_navbar_height": true,
+      "all_sections_use_section_defaults_unless_overridden": true,
+      "no_section_should_overlap_another": true
+    },
+    "quality_rules": {
+      "premium_ui": true,
+      "smooth_tailwind_animations": true,
+      "fully_responsive": true,
+      "follow_design_system_strictly": true,
+      "visual_consistency_over_creativity": true
+    }
+  },
+
+  "completion_signal": {
+    "description": "This object is returned by the AI alongside the final section's code. The frontend polls this to decide whether to continue or stop.",
+    "done": false,
+    "last_section_generated": "string — ID of the last section that was just generated",
+    "total_generated": 0,
+    "message": "string — e.g. 'All sections generated. Website is complete.'"
   }
+}`;
 
-  throw new Error("All APIs failed.");
-}
-
-async function callGroq(userPrompt, systemPrompt) {
-  const res = await fetch("/api/chat", {
+  const res = await fetch("/api/grok", {
     method: "POST",
-
     headers: { "Content-Type": "application/json" },
-
-    body: JSON.stringify({ message: userPrompt, system: systemPrompt }),
+    body: JSON.stringify({
+      messages: [{ role: "user", content: schemaPrompt }],
+      systemPrompt:
+        "You are a JSON generator. Return ONLY valid JSON. No markdown, no explanation.",
+      model: "x-ai/grok-4.1-fast",
+      temperature: 0.3, // Low temperature for consistent JSON
+      maxTokens: 14000,
+    }),
   });
 
-  // Exact error dekho
-
-  if (!res.ok) {
-    const errorBody = await res.text();
-
-    console.error("Groq API HTTP Error:", res.status, errorBody);
-
-    throw new Error(`Groq API failed: ${res.status} - ${errorBody}`);
-  }
+  if (!res.ok) throw new Error(`Schema API failed: ${res.status}`);
 
   const data = await res.json();
+  const raw = data.content || "";
 
-  console.log("Groq Raw Reply:", data.reply); // Response dekho
+  // JSON extract karo
+  const start = raw.indexOf("{");
+  const end = raw.lastIndexOf("}");
+  if (start === -1 || end === -1) throw new Error("Schema JSON nahi mila");
 
-  const parsed = parseResponse(data.reply);
-
-  if (!parsed) throw new Error("Groq response parse nahi hua");
-
-  return parsed;
+  return JSON.parse(raw.slice(start, end + 1));
 }
 
-async function callPuter(userPrompt, systemPrompt) {
-  if (typeof window === "undefined" || !window.puter) {
-    throw new Error("Puter not available");
+// ─── Step 2: Full HTML Generate karo using Schema ─────────────────────────────
+async function generateHTMLFromSchema(schema, userPrompt) {
+  const sectionsDesc = schema.sections
+    .map(
+      (s, i) =>
+        `${i + 1}. ${s.name} (${s.id}): ${s.description}. Components: ${s.components?.join(", ")}. ${s.content?.heading ? `Heading: "${s.content.heading}"` : ""} ${s.content?.subheading ? `Subheading: "${s.content.subheading}"` : ""} ${s.content?.items?.length ? `Items: ${JSON.stringify(s.content.items)}` : ""}`,
+    )
+    .join("\n");
+
+  const colors = schema.design_system.colors;
+
+  const htmlPrompt = `You are given a complete website schema. Build the ENTIRE website as a single HTML output strictly following this schema.
+
+SCHEMA:
+${JSON.stringify(schema, null, 2)}
+
+OUTPUT RULES:
+- Output ONLY raw HTML inside ONE root <div>
+- NO markdown, NO backticks, NO explanations, NO HTML comments ()
+- Start with <div and end with </div>
+- Use class="" (NOT className="")
+- All tags properly closed
+- NO <html> <head> <body> <script> tags
+- NO JavaScript or event handlers
+
+STRICTLY FOLLOW FROM SCHEMA:
+- Use EXACT colors from design_system.colors
+- Use EXACT font from design_system.typography.font_family
+- Use EXACT border_radius from design_system.ui.border_radius
+- Build ALL sections from sections array in ORDER
+- Use content (heading, subheading, items) from each section's content field
+- Follow each section's layout.type and components list
+
+INLINE STYLE RULES (mandatory):
+- Page wrapper: style="background: ${colors.background}; min-height: 100vh; font-family: ${schema.design_system.typography.font_family};"
+- Cards: style="background: ${colors.surface}; border: 1px solid ${colors.border}; border-radius: ${schema.design_system.ui.border_radius}; backdrop-filter: blur(20px); padding: 32px;"
+- Primary button: style="background: linear-gradient(135deg, ${colors.primary}, ${colors.secondary}); color: #fff; padding: 12px 28px; border-radius: 10px; font-weight: 600; border: none; display: inline-block; cursor: pointer;"
+- Gradient heading: style="background: linear-gradient(135deg, ${colors.text_primary}, ${colors.primary}); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; font-weight: 800;"
+- Glow card: style="box-shadow: 0 0 40px ${colors.primary}33;"
+- Navbar: style="position: fixed; top: 0; left: 0; right: 0; z-index: 50; background: ${colors.background}cc; backdrop-filter: blur(20px); border-bottom: 1px solid ${colors.border}; height: ${schema.layout_globals.navbar.height};"
+- Hero section: style="min-height: 100vh; padding-top: ${schema.layout_globals.navbar.height}; display: flex; align-items: center; justify-content: center;"
+
+ICON FORMAT: <icon name="LucideIconName" class="w-5 h-5"></icon>
+IMAGES: Use real Unsplash URLs relevant to the project type`;
+
+  const res = await fetch("/api/grok", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages: [{ role: "user", content: htmlPrompt }],
+      systemPrompt: `You are a world-class Frontend Developer. Generate premium HTML with exact colors and design system provided. Never deviate from the color values given. Output only raw HTML starting with <div. Always self-close void elements: <input />, <img />, <br />, <hr /> `,
+      model: "x-ai/grok-4.1-fast",
+      temperature: 0.7,
+      maxTokens: 14000,
+    }),
+  });
+
+  if (!res.ok) throw new Error(`HTML API failed: ${res.status}`);
+
+  const data = await res.json();
+  const raw = data.content || "";
+
+  const cleaned = raw
+    .replace(/^```(html|jsx|tsx|xml)?\n?/im, "")
+    .replace(/\n?```\s*$/im, "")
+    .trim();
+
+  if (!cleaned.includes("<div")) {
+    throw new Error("Valid HTML nahi mila");
+  }
+  const fixed = cleaned
+    .replace(/<input([^>]*)>/gi, "<input$1 />")
+    .replace(/<br([^>]*)>/gi, "<br$1 />")
+    .replace(/<hr([^>]*)>/gi, "<hr$1 />")
+    .replace(/<img([^>]*)(?<!\/)>/gi, "<img$1 />");
+
+  if (!fixed.includes("<div")) {
+    throw new Error("Valid HTML nahi mila");
   }
 
-  const res = await window.puter.ai.chat(
-    `${systemPrompt}\n\nUser Prompt: ${userPrompt}`,
-
-    { model: "gpt-4o-mini" },
+  // Duplicate style attributes merge karo
+  let result = fixed.replace(
+    /style="([^"]*)"([^>]*)\sstyle="([^"]*)"/gi,
+    (match, s1, middle, s2) => `style="${s1}; ${s2}"${middle}`
   );
 
-  const text = res?.toString();
-
-  if (!text) throw new Error("Puter returned empty response");
-
-  return parseResponse(text);
-}
-
-function parseResponse(rawText) {
-  if (!rawText) return null;
-
-  // Agar AI ne ```html ... ``` ke andar code diya hai, to use extract karein
-
-  let cleanCode = rawText;
-
-  const markdownMatch = rawText.match(/```(?:html|xml)?([\s\S]*?)```/);
-
-  if (markdownMatch) {
-    cleanCode = markdownMatch[1].trim();
-  } else {
-    cleanCode = rawText.trim();
-  }
-
-  // Check karein ke kam az kam <div> se start ho raha hai
-
-  if (cleanCode.includes("<div")) {
-    return cleanCode;
-  }
-
-  return null;
-}
-
-function isValidStructure(parsed) {
-  return (
-    Array.isArray(parsed) && parsed[0]?.projectTitle && parsed[0]?.html_design
+  // Duplicate class attributes merge karo  
+  result = result.replace(
+    /class="([^"]*)"([^>]*)\sclass="([^"]*)"/gi,
+    (match, c1, middle, c2) => `class="${c1} ${c2}"${middle}`
   );
+
+  return result;
+}
+
+// ─── Main Export ──────────────────────────────────────────────────────────────
+export async function generateUI(userPrompt) {
+  // Step 1: Schema banao
+  const schema = await generateSchema(userPrompt);
+  console.log("✅ Schema generated:", schema.project.name);
+
+  // Step 2: HTML banao using schema
+  const html = await generateHTMLFromSchema(schema, userPrompt);
+  console.log("✅ HTML generated");
+
+  return html;
 }

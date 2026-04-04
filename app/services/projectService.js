@@ -27,14 +27,18 @@ export async function createProject(userId, username, projectData) {
 export async function getProjectBySlug(slug) {
   const supabase = createClient();
 
+  // ✅ URL encoding decode karo — %40 → @, %20 → space etc.
+  const decodedSlug = decodeURIComponent(slug);
+  
+  console.log("Decoded slug:", decodedSlug);
+
   const { data, error } = await supabase
     .from("projects")
     .select("project_title, html_design")
-    .eq("slug", slug)
+    .eq("slug", decodedSlug)
     .single();
 
   if (error) throw new Error(error.message);
-
   return data;
 }
 

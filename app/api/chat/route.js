@@ -1,30 +1,49 @@
-// app/api/chat/route.js
-import Groq from "groq-sdk";
+import { NextResponse } from 'next/server';
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-
-export async function POST(req) {
+export async function POST(request) {
   try {
-    const { message, system } = await req.json();
+    const { messages, reasoningEnabled = false } = await request.json();
 
-    console.log("Received message:", message); // debug
+    if (!messages || !Array.isArray(messages)) {
+      return NextResponse.json({ error: "Messages array required" }, { status: 400 });
+    }
 
-    const completion = await groq.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: message },
-      ],
-      temperature: 0.7,
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      return NextResponse.json({ error: "OPENROUTER_API_KEY missing in .env" }, { status: 500 });
+    }
+
+    const body = {
+      model: "qwen/qwen3.6-plus:free",
+      messages: messages,
+      max_tokens: 20000,         
+      temperature: 0.7,            
+      ...(reasoningEnabled && {
+        reasoning: { enabled: true }
+      })
+    };
+
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        // Optional — leaderboard pe app dikhane ke liye
+        "HTTP-Referer": "http://localhost:3000",
+        "X-Title": "Qwen3.6-NextJS-Chat",
+      },
+      body: JSON.stringify(body),
     });
 
-    const reply = completion.choices[0]?.message?.content || "";
-    console.log("Groq reply:", reply); // debug
+    const data = await response.json();
 
-    return Response.json({ reply });
+    if (!response.ok) {
+      return NextResponse.json(data, { status: response.status });
+    }
 
+    return NextResponse.json(data);
   } catch (error) {
-    console.error("Route error:", error.message); // exact error server terminal mein
-    return Response.json({ error: error.message }, { status: 500 });
+    console.error(error);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }

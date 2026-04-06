@@ -6,7 +6,6 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { getProjectBySlug } from "../../services/projectService";
 import Loading from "../../components/Loading";
 
-// ── Lucide icons ko real SVG string mein convert karo ──
 function convertIconsToSVG(html) {
   return html.replace(
     /<icon\s+name="([^"]+)"\s+class="([^"]*)"[^/]*\/?>(?:<\/icon>)?/gi,
@@ -68,44 +67,27 @@ const fullHTML = `<!DOCTYPE html>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>${project.project_title || "Preview"}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- ←←← YE LINE ADD KAR DO -->
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Lato:wght@300;400;700&display=swap" rel="stylesheet">
+  
+  <script src="https://cdn.tailwindcss.com"><\/script>
   <script>
-    tailwind.config = {
-      theme: {
-        extend: {
-          animation: {
-            'fade-in': 'fadeIn 0.5s ease-in-out',
-          },
-          keyframes: {
-            fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } }
-          }
-        }
-      }
-    }
-  </script>
+    tailwind.config = { ... }
+  <\/script>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html { scroll-behavior: smooth; }
-    
-    // /* ✅ Tailwind bg-clip-text fix for CDN */
-    .bg-clip-text { -webkit-background-clip: text !important; background-clip: text !important; }
-    .text-transparent { -webkit-text-fill-color: transparent !important; color: transparent !important; }
-    
-    /* ✅ Backdrop blur fix */
-    .backdrop-blur-xl { backdrop-filter: blur(24px) !important; }
-    .backdrop-blur-md { backdrop-filter: blur(12px) !important; }
-    .backdrop-blur-sm { backdrop-filter: blur(4px) !important; }
-    
-    /* ✅ Smooth hover transitions */
-    * { transition-property: color, background-color, border-color, transform, box-shadow, opacity; transition-duration: 200ms; }
-    
-    /* ✅ Scrollbar styling */
     ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-track { background: #0a0a0f; }
-    ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+    ::-webkit-scrollbar-track { background: #09090b; }
+    ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 3px; }
+    
+    /* Extra safe fonts fallback */
+    .font-\\[\\'Playfair_Display\\',serif\\] { font-family: 'Playfair Display', serif; }
+    .font-\\[\\'Lato\\',sans-serif\\] { font-family: 'Lato', sans-serif; }
   </style>
 </head>
-<body>
+<body class="bg-zinc-950 text-white">
 ${htmlWithIcons}
 </body>
 </html>`;
@@ -114,20 +96,19 @@ ${htmlWithIcons}
     <iframe
       srcDoc={fullHTML}
       title={project.project_title || "Preview"}
-      className="w-full border-0 block"
-      style={{ height: "100vh", minHeight: "100vh" }}
+      className="w-full h-screen block border-0"
       sandbox="allow-scripts allow-same-origin allow-forms"
-      onLoad={(e) => {
-        try {
-          const doc = e.target.contentDocument;
-          if (doc?.body) {
-            const h = doc.body.scrollHeight;
-            if (h > window.innerHeight) {
-              e.target.style.height = h + "px";
-            }
-          }
-        } catch {}
-      }}
+      // onLoad={(e) => {
+      //   try {
+      //     const doc = e.target.contentDocument;
+      //     if (doc?.body) {
+      //       const h = doc.body.scrollHeight;
+      //       if (h > window.innerHeight) {
+      //         e.target.style.height = h + "px";
+      //       }
+      //     }
+      //   } catch {}
+      // }}
     />
   );
 }

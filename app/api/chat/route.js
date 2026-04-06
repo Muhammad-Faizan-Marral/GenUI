@@ -2,7 +2,13 @@ import { NextResponse } from 'next/server';
 
 export async function POST(request) {
   try {
-    const { messages, reasoningEnabled = false } = await request.json();
+    const { 
+      messages, 
+      systemPrompt, 
+      temperature = 0.7, 
+      max_tokens = 20000, 
+      reasoningEnabled = false 
+    } = await request.json();
 
     if (!messages || !Array.isArray(messages)) {
       return NextResponse.json({ error: "Messages array required" }, { status: 400 });
@@ -10,17 +16,20 @@ export async function POST(request) {
 
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) {
-      return NextResponse.json({ error: "OPENROUTER_API_KEY missing in .env" }, { status: 500 });
+      return NextResponse.json({ error: "OPENROUTER_API_KEY missing" }, { status: 500 });
+    }
+
+    let finalMessages = [...messages];
+    if (systemPrompt) {
+      finalMessages.unshift({ role: "system", content: systemPrompt });
     }
 
     const body = {
       model: "qwen/qwen3.6-plus:free",
-      messages: messages,
-      max_tokens: 20000,         
-      temperature: 0.7,            
-      ...(reasoningEnabled && {
-        reasoning: { enabled: true }
-      })
+      messages: finalMessages,
+      max_tokens: Math.min(max_tokens, 20000),   
+      temperature,
+      ...(reasoningEnabled && { reasoning: { enabled: true } })
     };
 
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
@@ -28,9 +37,8 @@ export async function POST(request) {
       headers: {
         "Authorization": `Bearer ${apiKey}`,
         "Content-Type": "application/json",
-        // Optional — leaderboard pe app dikhane ke liye
         "HTTP-Referer": "http://localhost:3000",
-        "X-Title": "Qwen3.6-NextJS-Chat",
+        "X-Title": "Qwen3.6-UI-Generator",  
       },
       body: JSON.stringify(body),
     });
@@ -41,9 +49,9 @@ export async function POST(request) {
       return NextResponse.json(data, { status: response.status });
     }
 
-    return NextResponse.json(data);
+    return NextResponse.json(data);   
   } catch (error) {
     console.error(error);
     return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
-}
+}   

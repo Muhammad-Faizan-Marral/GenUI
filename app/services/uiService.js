@@ -13,9 +13,35 @@ export async function getUserId() {
   return user.id;
 }
 
-// ─── Step 1: Schema Generate karo ────────────────────────────────────────────
+// ─── Simple Fetch with longer timeout (no undici) ─────────────────────
+async function fetchWithLongTimeout(url, options = {}, timeoutMs = 120000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      throw new Error(`API failed: ${response.status}`);
+    }
+    return response;
+  } catch (error) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error(`Request timeout after ${timeoutMs / 1000} seconds`);
+    }
+    throw error;
+  }
+}
+
+// ─── Generate Schema ────────────────────────────────────────────────
 async function generateSchema(userPrompt) {
-  const schemaPrompt = `You are a UI architect. Analyze the user's request and return ONLY a valid JSON schema. No markdown, no backticks, no explanation. Start with { and end with }.
+   const schemaPrompt = `You are a UI architect. Analyze the user's request and return ONLY a valid JSON schema. No markdown, no backticks, no explanation. Start with { and end with }.
 
 USER REQUEST: "${userPrompt}"
 
@@ -180,136 +206,116 @@ Return this exact JSON structure filled with real values:
   }
 }`;
 
-  const res = await fetch("/api/grok", {
+  const res = await fetchWithLongTimeout("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       messages: [{ role: "user", content: schemaPrompt }],
-      systemPrompt:
-        "You are a JSON generator. Return ONLY valid JSON. No markdown, no explanation.",
-      model: "x-ai/grok-4.1-fast",
-      temperature: 0.3, // Low temperature for consistent JSON
-      maxTokens: 14000,
+      systemPrompt: "You are a JSON generator. Return ONLY valid JSON.",
+      temperature: 0.3,
+      max_tokens: 20000,
     }),
-  });
-
-  if (!res.ok) throw new Error(`Schema API failed: ${res.status}`);
+  }, 480000);   // 90 seconds
 
   const data = await res.json();
-  const raw = data.content || "";
+  const raw = data.choices?.[0]?.message?.content || "";
 
-  // JSON extract karo
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
-  if (start === -1 || end === -1) throw new Error("Schema JSON nahi mila");
+  if (start === -1 || end === -1) throw new Error("Schema JSON not found");
 
   return JSON.parse(raw.slice(start, end + 1));
 }
 
-// ─── Step 2: Full HTML Generate karo using Schema ─────────────────────────────
+// ─── Generate HTML ─────────────────────────────────────────────────
 async function generateHTMLFromSchema(schema, userPrompt) {
-  const sectionsDesc = schema.sections
-    .map(
-      (s, i) =>
-        `${i + 1}. ${s.name} (${s.id}): ${s.description}. Components: ${s.components?.join(", ")}. ${s.content?.heading ? `Heading: "${s.content.heading}"` : ""} ${s.content?.subheading ? `Subheading: "${s.content.subheading}"` : ""} ${s.content?.items?.length ? `Items: ${JSON.stringify(s.content.items)}` : ""}`,
-    )
-    .join("\n");
+  const colors = schema.design_system?.colors || {};
 
-  const colors = schema.design_system.colors;
-
-  const htmlPrompt = `You are given a complete website schema. Build the ENTIRE website as a single HTML output strictly following this schema.
+   const htmlPrompt = `You are a world-class Frontend Developer. Generate a complete website as a single HTML output.
 
 SCHEMA:
 ${JSON.stringify(schema, null, 2)}
 
-OUTPUT RULES:
+OUTPUT RULES — READ CAREFULLY:
 - Output ONLY raw HTML inside ONE root <div>
-- NO markdown, NO backticks, NO explanations, NO HTML comments ()
+- NO markdown, NO backticks, NO explanations
 - Start with <div and end with </div>
 - Use class="" (NOT className="")
 - All tags properly closed
 - NO <html> <head> <body> <script> tags
-- NO JavaScript or event handlers
 
-STRICTLY FOLLOW FROM SCHEMA:
-- Use EXACT colors from design_system.colors
-- Use EXACT font from design_system.typography.font_family
-- Use EXACT border_radius from design_system.ui.border_radius
-- Build ALL sections from sections array in ORDER
-- Use content (heading, subheading, items) from each section's content field
-- Follow each section's layout.type and components list
+⚠️ CRITICAL — STYLING RULES:
+- Use ONLY Tailwind CSS utility classes for ALL styling
+- NEVER use inline style="" attributes for colors, spacing, layout, or effects
+- For hover effects: use Tailwind hover: prefix e.g. hover:bg-blue-500 hover:scale-105
+- For transitions: use Tailwind classes e.g. transition-all duration-300 ease-in-out
+- For animations: use Tailwind animate- classes e.g. animate-fade-in animate-bounce
+- For gradients: use Tailwind bg-gradient-to-r from-blue-500 to-purple-600
+- For backdrop blur: use Tailwind backdrop-blur-md
+- For glass effect: use bg-white/10 backdrop-blur-md border border-white/20
 
-INLINE STYLE RULES (mandatory):
-- Page wrapper: style="background: ${colors.background}; min-height: 100vh; font-family: ${schema.design_system.typography.font_family};"
-- Cards: style="background: ${colors.surface}; border: 1px solid ${colors.border}; border-radius: ${schema.design_system.ui.border_radius}; backdrop-filter: blur(20px); padding: 32px;"
-- Primary button: style="background: linear-gradient(135deg, ${colors.primary}, ${colors.secondary}); color: #fff; padding: 12px 28px; border-radius: 10px; font-weight: 600; border: none; display: inline-block; cursor: pointer;"
-- Gradient heading: style="background: linear-gradient(135deg, ${colors.text_primary}, ${colors.primary}); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; font-weight: 800;"
-- Glow card: style="box-shadow: 0 0 40px ${colors.primary}33;"
-- Navbar: style="position: fixed; top: 0; left: 0; right: 0; z-index: 50; background: ${colors.background}cc; backdrop-filter: blur(20px); border-bottom: 1px solid ${colors.border}; height: ${schema.layout_globals.navbar.height};"
-- Hero section: style="min-height: 100vh; padding-top: ${schema.layout_globals.navbar.height}; display: flex; align-items: center; justify-content: center;"
+TAILWIND COLOR MAPPING FROM SCHEMA:
+- primary color (${colors.primary}): use closest Tailwind class e.g. bg-blue-600 text-blue-600 border-blue-600
+- secondary color (${colors.secondary}): use closest Tailwind class e.g. bg-purple-600
+- accent color (${colors.accent}): use closest Tailwind class e.g. bg-emerald-500
+- background (${colors.background}): bg-zinc-950 or bg-gray-950
+- surface: bg-zinc-900, surface-2: bg-zinc-800
+- text primary: text-white or text-slate-50
+- text secondary: text-slate-300
+- text muted: text-slate-500
 
-ICON FORMAT: <icon name="LucideIconName" class="w-5 h-5"></icon>
+COMPONENT PATTERNS (use these exact Tailwind patterns):
+- Card: class="bg-zinc-900 border border-white/10 rounded-2xl p-8 hover:border-white/20 transition-all duration-300 hover:-translate-y-1"
+- Primary Button: class="bg-blue-600 hover:bg-blue-500 text-white font-semibold px-8 py-3 rounded-xl transition-all duration-300 hover:shadow-lg hover:shadow-blue-500/25"
+- Navbar: class="fixed top-0 left-0 right-0 z-50 bg-zinc-950/80 backdrop-blur-xl border-b border-white/5 h-16 flex items-center justify-between px-8"
+- Hero section: class="min-h-screen pt-16 flex items-center justify-center text-center"
+- Gradient text: class="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent"
+- Skill bar: use width percentage with Tailwind e.g. class="h-1.5 bg-blue-600 rounded-full" style="width: 90%" (width% only is ok)
+- Section: class="py-20 md:py-28 px-4 md:px-8 max-w-7xl mx-auto"
+
 IMAGES: Use real Unsplash URLs relevant to the project type`;
 
-  const res = await fetch("/api/grok", {
+  const res = await fetchWithLongTimeout("/api/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       messages: [{ role: "user", content: htmlPrompt }],
-      systemPrompt: `You are a world-class Frontend Developer. Generate premium HTML with exact colors and design system provided. Never deviate from the color values given. Output only raw HTML starting with <div. Always self-close void elements: <input />, <img />, <br />, <hr /> `,
-      model: "x-ai/grok-4.1-fast",
+      systemPrompt: "You are a world-class Frontend Developer. Output only raw HTML.",
       temperature: 0.7,
-      maxTokens: 14000,
+      max_tokens: 20000,
     }),
-  });
-
-  if (!res.ok) throw new Error(`HTML API failed: ${res.status}`);
+  }, 480000);   // 3 minutes (180 seconds) – slow internet pe bhi wait karega
 
   const data = await res.json();
-  const raw = data.content || "";
+  let raw = data.choices?.[0]?.message?.content || "";
 
-  const cleaned = raw
-    .replace(/^```(html|jsx|tsx|xml)?\n?/im, "")
+  // cleaning (same as before)
+  let result = raw
+    .replace(/^```(html|jsx)?\n?/im, "")
     .replace(/\n?```\s*$/im, "")
     .trim();
 
-  if (!cleaned.includes("<div")) {
-    throw new Error("Valid HTML nahi mila");
-  }
-  const fixed = cleaned
+  result = result
     .replace(/<input([^>]*)>/gi, "<input$1 />")
-    .replace(/<br([^>]*)>/gi, "<br$1 />")
-    .replace(/<hr([^>]*)>/gi, "<hr$1 />")
     .replace(/<img([^>]*)(?<!\/)>/gi, "<img$1 />");
-
-  if (!fixed.includes("<div")) {
-    throw new Error("Valid HTML nahi mila");
-  }
-
-  // Duplicate style attributes merge karo
-  let result = fixed.replace(
-    /style="([^"]*)"([^>]*)\sstyle="([^"]*)"/gi,
-    (match, s1, middle, s2) => `style="${s1}; ${s2}"${middle}`
-  );
-
-  // Duplicate class attributes merge karo  
-  result = result.replace(
-    /class="([^"]*)"([^>]*)\sclass="([^"]*)"/gi,
-    (match, c1, middle, c2) => `class="${c1} ${c2}"${middle}`
-  );
 
   return result;
 }
 
-// ─── Main Export ──────────────────────────────────────────────────────────────
+// ─── Main Function ─────────────────────────────────────────────────
 export async function generateUI(userPrompt) {
-  // Step 1: Schema banao
-  const schema = await generateSchema(userPrompt);
-  console.log("✅ Schema generated:", schema.project.name);
+  try {
+    console.log("🚀 Starting generation...");
 
-  // Step 2: HTML banao using schema
-  const html = await generateHTMLFromSchema(schema, userPrompt);
-  console.log("✅ HTML generated");
+    const schema = await generateSchema(userPrompt);
+    console.log("✅ Schema done");
 
-  return html;
+    const html = await generateHTMLFromSchema(schema, userPrompt);
+    console.log("✅ HTML done");
+
+    return html;
+  } catch (error) {
+    console.error("❌ Error:", error.message);
+    throw error;
+  }
 }

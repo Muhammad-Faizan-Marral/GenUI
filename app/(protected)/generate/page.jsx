@@ -99,8 +99,8 @@ export default function PromptPage() {
   } catch (error) {
     console.error("Error:", error.message);
     clearInterval(stepInterval);
-    alert("Failed to generate UI: " + error.message);
-    setPhase("prompt"); // Error pe wapas prompt par le jao
+    alert("Failed to generate UI: Please Try again ! ");
+    setPhase("prompt");
   }
 };
 

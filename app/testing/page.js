@@ -3,7 +3,7 @@
 import { useState } from 'react';
 
 export default function Page() {
-  const [messages, setMessages] = useState([]); // yahan full history + reasoning_details save hoga
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [reasoningEnabled, setReasoningEnabled] = useState(true); // toggle on/off

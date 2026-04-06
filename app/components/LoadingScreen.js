@@ -65,7 +65,7 @@ export function LoadingScreen({ step }) {
           </div>
         ))}
       </div>
-      <p className="text-xs text-zinc-700">Usually takes 2–4 seconds</p>
+      <p className="text-xs text-zinc-700 animate-ping">Usually takes 40–60 seconds</p>
     </div>
   );
 }

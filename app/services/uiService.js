@@ -12,36 +12,67 @@ export async function getUserId() {
   if (!user) throw new Error("No active session found");
   return user.id;
 }
+// ─── Intelligent Fetch with Retry + OpenRouter Retry-After Support ─────────────────────
+async function fetchWithRetry(url, options = {}, timeoutMs = 120000, maxRetries = 5) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-// ─── Simple Fetch with longer timeout (no undici) ─────────────────────
-async function fetchWithLongTimeout(url, options = {}, timeoutMs = 120000) {
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+      });
 
-  try {
-    const response = await fetch(url, {
-      ...options,
-      signal: controller.signal,
-    });
+      clearTimeout(timeoutId);
 
-    clearTimeout(timeoutId);
+      if (response.ok) return response;
 
-    if (!response.ok) {
+      // ── 429 handling with exact wait time from OpenRouter ──
+      if (response.status === 429 && attempt < maxRetries) {
+        let waitMs = Math.pow(2, attempt) * 15000; // fallback: 15s → 30s → 60s → 120s
+
+        // OpenRouter 429 response mein exact time hota hai
+        try {
+          const errorData = await response.clone().json();
+          const retryAfter = errorData.error?.metadata?.headers?.["Retry-After"] ||
+                            errorData.error?.metadata?.headers?.["X-RateLimit-Reset"];
+
+          if (retryAfter) {
+            const resetTime = new Date(retryAfter).getTime();
+            if (resetTime) waitMs = Math.max(resetTime - Date.now(), 10000);
+          }
+        } catch (e) {
+          // ignore parsing error
+        }
+
+        console.log(`🚨 429 Rate Limit! Waiting ${Math.round(waitMs / 1000)} seconds... (attempt ${attempt + 1}/${maxRetries})`);
+        await sleep(waitMs);
+        continue;
+      }
+
       throw new Error(`API failed: ${response.status}`);
+    } catch (error) {
+      clearTimeout(timeoutId);
+      if (error.message.includes("429") && attempt < maxRetries) {
+        const waitMs = Math.pow(2, attempt) * 15000;
+        console.log(`🚨 429 caught, waiting ${Math.round(waitMs / 1000)}s...`);
+        await sleep(waitMs);
+        continue;
+      }
+      if (error.name === "AbortError") {
+        throw new Error(`Request timeout after ${timeoutMs / 1000} seconds`);
+      }
+      throw error;
     }
-    return response;
-  } catch (error) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
-      throw new Error(`Request timeout after ${timeoutMs / 1000} seconds`);
-    }
-    throw error;
   }
+  throw new Error("Max retries reached. OpenRouter rate limit bohot tight hai.");
 }
+
 
 // ─── Generate Schema ────────────────────────────────────────────────
 async function generateSchema(userPrompt) {
-   const schemaPrompt = `You are a UI architect. Analyze the user's request and return ONLY a valid JSON schema. No markdown, no backticks, no explanation. Start with { and end with }.
+  const schemaPrompt = `You are a UI architect. Analyze the user's request and return ONLY a valid JSON schema. No markdown, no backticks, no explanation. Start with { and end with }.
 
 USER REQUEST: "${userPrompt}"
 
@@ -206,16 +237,20 @@ Return this exact JSON structure filled with real values:
   }
 }`;
 
-  const res = await fetchWithLongTimeout("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      messages: [{ role: "user", content: schemaPrompt }],
-      systemPrompt: "You are a JSON generator. Return ONLY valid JSON.",
-      temperature: 0.3,
-      max_tokens: 20000,
-    }),
-  }, 480000);   // 90 seconds
+  const res = await fetchWithRetry(
+    "/api/chat",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: schemaPrompt }],
+        systemPrompt: "You are a JSON generator. Return ONLY valid JSON.",
+        temperature: 0.3,
+        max_tokens: 20000,
+      }),
+    },
+    480000,
+  ); // 90 seconds
 
   const data = await res.json();
   const raw = data.choices?.[0]?.message?.content || "";
@@ -231,7 +266,7 @@ Return this exact JSON structure filled with real values:
 async function generateHTMLFromSchema(schema, userPrompt) {
   const colors = schema.design_system?.colors || {};
 
-   const htmlPrompt = `You are a world-class Frontend Developer. Generate a complete website as a single HTML output.
+  const htmlPrompt = `You are a world-class Frontend Developer. Generate a complete website as a single HTML output.
 
 SCHEMA:
 ${JSON.stringify(schema, null, 2)}
@@ -275,16 +310,21 @@ COMPONENT PATTERNS (use these exact Tailwind patterns):
 
 IMAGES: Use real Unsplash URLs relevant to the project type`;
 
-  const res = await fetchWithLongTimeout("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      messages: [{ role: "user", content: htmlPrompt }],
-      systemPrompt: "You are a world-class Frontend Developer. Output only raw HTML.",
-      temperature: 0.7,
-      max_tokens: 20000,
-    }),
-  }, 480000);   // 3 minutes (180 seconds) – slow internet pe bhi wait karega
+  const res = await fetchWithRetry(
+    "/api/chat",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: htmlPrompt }],
+        systemPrompt:
+          "You are a world-class Frontend Developer. Output only raw HTML.",
+        temperature: 0.7,
+        max_tokens: 20000,
+      }),
+    },
+    480000,
+  ); // 3 minutes (180 seconds) – slow internet pe bhi wait karega
 
   const data = await res.json();
   let raw = data.choices?.[0]?.message?.content || "";
@@ -302,6 +342,10 @@ IMAGES: Use real Unsplash URLs relevant to the project type`;
   return result;
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 // ─── Main Function ─────────────────────────────────────────────────
 export async function generateUI(userPrompt) {
   try {
@@ -309,7 +353,10 @@ export async function generateUI(userPrompt) {
 
     const schema = await generateSchema(userPrompt);
     console.log("✅ Schema done");
-
+    console.log("Cool down start ....");
+    await sleep(9000);
+    console.log("Cool down End  ....");
+    console.log("ui creation start ....");
     const html = await generateHTMLFromSchema(schema, userPrompt);
     console.log("✅ HTML done");
 

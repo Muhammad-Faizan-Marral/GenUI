@@ -20,7 +20,6 @@ export async function getUserId() {
   if (!user) {
     throw new Error("No active session found");
   }
-  console.log("Ui service file --> User_Id :" + user.id);
   return user.id;
 }
 

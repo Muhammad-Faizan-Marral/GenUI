@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { callOpenRouter } from "../../services/openrouterService";   // ← sahi path use karo
+import { callOpenRouter } from "../../services/openrouterService";  
 
 export async function POST(request) {
   try {
@@ -19,7 +19,7 @@ export async function POST(request) {
 
     const result = await callOpenRouter({
       messages,
-      systemPrompt,           // user se aaye to use karo, warna default
+      systemPrompt,        
       model: model || "x-ai/grok-4.1-fast",
       temperature,
       maxTokens,

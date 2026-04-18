@@ -14,12 +14,21 @@ import {
   AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
-import { generateUI, getProfilId, getUserId, uiLayout } from "../../services/uiService";
-import { createProject } from "../../services/dbService";
+import { getUserId } from "../../services/uiService";
+import {
+  Insert_Component_Tabel_Data,
+  Insert_Item_Tabel_Data,
+  Insert_Project_Tabel_Data,
+} from "../../services/dbService";
 import { useProfile } from "../../hooks/useProfile";
 import { LoadingScreen } from "../../components/LoadingScreen";
 import { ResultCard } from "../../components/ResultCard";
-import { masterService } from "../../services/masterService";
+import {
+  Componets_and_Items_Creator,
+  ComponetsAndItemsSystem,
+  generateAllComponents,
+  masterService,
+} from "../../services/masterService";
 
 const LOADING_STEPS = [
   { text: "Parsing your prompt…", icon: "📝" },
@@ -62,44 +71,107 @@ export default function PromptPage() {
       return OUTPUTS.dashboard;
     return OUTPUTS.login;
   };
-  // Master Working
-  const handleGenerate = async () => {
-    if (!prompt.trim()) return;
-    setError(null);
-    setPhase("loading");
-    setLoadingStep(0);
 
-    for (let i = 0; i < 5; i++) {
-      await new Promise((r) => setTimeout(r, 150));
+  // Master Working - Updated & Clean
+const handleGenerate = async () => {
+  if (!prompt.trim()) {
+    setError("Please enter a prompt");
+    return;
+  }
+
+  setError(null);
+  setPhase("loading");
+  setLoadingStep(0);
+
+  try {
+    console.log("🚀 Generation Started");
+
+    const userId = await getUserId();
+    console.log("👤 User ID:", userId);
+
+    // Step 1: Master JSON
+    console.log("📝 Step 1: Generating Master JSON...");
+    const masterJson = await masterService(prompt);
+    console.log("✅ Master JSON Received:", masterJson);
+
+    if (!masterJson?.sections || masterJson.sections.length === 0) {
+      throw new Error("Master JSON has no sections");
+    }
+
+    // Step 2: Save Project
+    console.log("💾 Step 2: Saving Project to Database...");
+    const projectData = await Insert_Project_Tabel_Data(userId, masterJson);
+    console.log("✅ Project Saved:", projectData);
+
+    const projectId = projectData.project_id;
+    console.log("📌 Project ID:", projectId);
+
+    // === IMPORTANT: Foran New Tab Open kar do ===
+    const previewUrl = `/p/${projectId}`;
+    console.log(`🌐 Opening Live Preview: ${previewUrl}`);
+    window.open(previewUrl, "_blank");
+
+    // Step 3: Generate Components one by one (background mein)
+    console.log(`🔄 Starting Component Generation for ${masterJson.sections.length} sections...`);
+
+    for (let i = 0; i < masterJson.sections.length; i++) {
+      const section = masterJson.sections[i];
+      console.log(`\n📍 Processing Section ${i + 1}/${masterJson.sections.length}: ${section.name} (${section.id})`);
+
       setLoadingStep(i + 1);
+
+      try {
+        console.log(`🤖 Calling AI for section: ${section.id}`);
+        const aiComponentResponse = await generateAllComponents(masterJson, section.id);
+        console.log(`✅ AI Response for ${section.id}:`, aiComponentResponse);
+
+        if (!aiComponentResponse?.ai_response_code) {
+          console.warn(`⚠️ Skipping section ${section.id} - no ai_response_code`);
+          continue;
+        }
+
+        // Save Component
+        console.log(`💾 Saving Component: ${section.id}`);
+        const savedComponent = await Insert_Component_Tabel_Data(
+          projectId,
+          section.id,
+          aiComponentResponse.ai_response_code,
+          i
+        );
+        console.log(`✅ Component Saved:`, savedComponent);
+
+        const compId = savedComponent.comp_id;
+
+        // Save Items
+        if (aiComponentResponse.items && aiComponentResponse.items.length > 0) {
+          console.log(`📦 Saving ${aiComponentResponse.items.length} items...`);
+          await Insert_Item_Tabel_Data(compId, aiComponentResponse.items);
+        } else {
+          console.log(`⚠️ No items for this component`);
+        }
+
+      } catch (sectionError) {
+        console.error(`❌ Failed section ${section.id}:`, sectionError);
+        // Continue to next section
+      }
     }
 
-    try {
-      const userId = await getUserId();
-      const profileId = await getProfilId(userId)
-      const aiResponse = await masterService(prompt);
+    console.log("🎉 All sections processed successfully!");
+    setPhase("done");
 
-      if (!aiResponse || Object.keys(aiResponse).length === 0) {
-        throw new Error("Generating Issue: Empty Response");
-      }
-      console.log("Final Master JSON:", aiResponse);
-      const savedInDB = await createProject(profileId,aiResponse);
-      console.log(savedInDB)
-      await new Promise((r) => setTimeout(r, 400));
-      setPhase("done");
-    } catch (err) {
-      console.error("Generation Error:", err);
-      setPhase("prompt");
+  } catch (err) {
+    console.error("💥 Generation Error:", err);
+    setPhase("prompt");
 
-      if (err.message.includes("JSON_PARSE_FAILED")) {
-        setError("AI generated invalid data. Please try a simpler prompt.");
-      } else if (err.message.startsWith("ALL_FAILED:")) {
-        setError("AI models are busy. Try again in a moment.");
-      } else {
-        setError("Something went wrong. Please check your connection.");
-      }
+    if (err.message.includes("JSON")) {
+      setError("AI returned invalid JSON. Try a simpler prompt.");
+    } else if (err.message.includes("API Error")) {
+      setError("AI service is busy. Please try again.");
+    } else {
+      setError(err.message || "Something went wrong.");
     }
-  };
+  }
+};
 
   const handleReset = () => {
     setPhase("prompt");

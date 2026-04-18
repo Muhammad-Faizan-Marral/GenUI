@@ -8,8 +8,9 @@ async function sendToGrok(userMessage) {
     body: JSON.stringify({
       messages: [{ role: "user", content: userMessage }],
       systemPrompt: "You are a helpful assistant.",
-      model: "x-ai/grok-4.1-fast",
+      model: "nvidia/nemotron-3-super-120b-a12b:free",
       temperature: 0.75,
+      maxTokens: 10000,
     }),
   });
 
@@ -29,14 +30,14 @@ const Page = () => {
 
   const handleSubmit = async () => {
     if (!text.trim()) return;
-        
+
     setLoading(true);
     setError(null);
     setResult(null);
 
     try {
       const data = await sendToGrok(text);
-      console.log(data)
+      console.log(data);
       setResult(data);
     } catch (err) {
       console.error("Fetch Error:", err);
@@ -44,7 +45,7 @@ const Page = () => {
     } finally {
       setLoading(false);
     }
-    console.log(result)
+    console.log(result);
   };
 
   return (
@@ -67,8 +68,12 @@ const Page = () => {
 
         <div className="mt-8 bg-red-900 p-6 rounded-3xl border border-gray-700 ">
           {error && <p className="text-red-500">❌ {error}</p>}
-          {result && <div className="whitespace-pre-wrap">{result.content}</div>}
-          {!result && !error && <p className="text-gray-500">Response yahan aayega...</p>}
+          {result && (
+            <div className="whitespace-pre-wrap">{result.content}</div>
+          )}
+          {!result && !error && (
+            <p className="text-gray-500">Response yahan aayega...</p>
+          )}
         </div>
       </div>
     </div>

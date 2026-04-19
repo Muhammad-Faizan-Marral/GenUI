@@ -72,7 +72,7 @@ export default function PromptPage() {
     return OUTPUTS.login;
   };
 
-  // Master Working - Updated & Clean
+  // Master Working 
 const handleGenerate = async () => {
   if (!prompt.trim()) {
     setError("Please enter a prompt");

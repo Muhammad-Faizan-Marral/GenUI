@@ -4,12 +4,11 @@ import { callOpenRouter } from "../../services/openrouterService";
 export async function POST(request) {
   try {
     const body = await request.json();
-
     const {
       messages,
       systemPrompt,
       model,
-      temperature = 0.7,
+      temperature = 0.3,
       maxTokens = 10000,
     } = body;
 

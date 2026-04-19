@@ -31,7 +31,11 @@ export async function Insert_Project_Tabel_Data(userId, masterJson) {
 }
 
 // ComponentTable - sirf main wrapper code
-export async function Insert_Component_Tabel_Data(projectId,componentName,aiResponseCode,i) {
+export async function Insert_Component_Tabel_Data(
+  projectId,
+  componentName,
+  aiResponseCode,
+) {
   const supabase = createClient();
 
   const { data, error } = await supabase
@@ -40,8 +44,7 @@ export async function Insert_Component_Tabel_Data(projectId,componentName,aiResp
       {
         project_id: projectId,
         component_name: componentName,
-        ai_response_code: aiResponseCode, 
-        order:i
+        ai_response_code: aiResponseCode,
       },
     ])
     .select()
@@ -59,10 +62,10 @@ export async function Insert_Item_Tabel_Data(compId, itemsArray = []) {
 
   const itemsToInsert = itemsArray.map((item, index) => ({
     comp_id: compId,
-    editabel_id: item.id || `item-${Date.now()}-${index}`,
+    editabel_id: item.id ? String(item.id) : `item-${Date.now()}-${index}`,
     item_code: item.code,
     order_num: item.order_num || index + 1,
-    type:item.type
+    type: item.type,
   }));
 
   const { data, error } = await supabase

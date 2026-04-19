@@ -1,83 +1,134 @@
 "use client";
-import { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { createClient } from "../../lib/supabase/client";
 
 export default function ProjectPreview({ params }) {
+  // 1. Params ko unwrap karein (Next.js 15 requirement)
+  const resolvedParams = React.use(params);
+  const projectId = resolvedParams.slug;
+
   const [components, setComponents] = useState([]);
   const [projectName, setProjectName] = useState("");
+  const [masterJson, setMasterJson] = useState(null);
+  const [totalSections, setTotalSections] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(null); 
 
-  const iframeRef = useRef < HTMLIFrameElement > null;
+  // Fix: Corrected useRef syntax
+  const iframeRef = useRef(null);
   const supabase = createClient();
 
-  const fetchComponents = async () => {
+  // Fetch project + components
+  const fetchAll = async () => {
+    if (!projectId) return;
+
     try {
-      const { data: project } = await supabase
+      setLoading(true);
+      // Project details + master_json
+      const { data: project, error: projError } = await supabase
         .from("projects")
-        .select("project_name")
-        .eq("project_id", params.projectId)
+        .select("project_name, master_json")
+        .eq("project_id", projectId)
         .single();
 
-      if (project) setProjectName(project.project_name);
+      if (projError) throw projError;
 
-      const { data, error } = await supabase
+      if (project) {
+        setProjectName(project.project_name);
+        setMasterJson(project.master_json);
+        setTotalSections(project.master_json?.sections?.length || 0);
+      }
+
+      // Components + Items join
+      const { data, error: compError } = await supabase
         .from("ComponentTable")
-        .select(
-          `
+        .select(`
           comp_id,
           component_name,
           ai_response_code,
           order,
-          ItemsTable!inner(editabel_id, item_code, order_num, type)
-        `,
-        )
-        .eq("project_id", params.projectId)
+          ItemsTable!comp_id (
+            editabel_id,
+            item_code,
+            order_num,
+            type
+          )
+        `)
+        .eq("project_id", projectId)
         .order("order", { ascending: true });
 
-      if (error) throw error;
+      if (compError) throw compError;
 
       setComponents(data || []);
     } catch (err) {
       console.error("Fetch error:", err);
-      setError("Failed to load project components");
+      setError("Failed to load preview");
     } finally {
       setLoading(false);
     }
   };
 
-  // Render into iframe
-  const renderIntoIframe = (comps) => {
-    if (!iframeRef.current || comps.length === 0) return;
+const renderIntoIframe = (comps) => {
+  if (!iframeRef.current || comps.length === 0) return;
 
-    let fullHTML = comps
-      .map((comp) => {
-        let wrapper = comp.ai_response_code || "<div></div>";
+  let fullHTML = comps
+    .map((comp) => {
+      let wrapper = comp.ai_response_code || "<div></div>";
 
-        const sortedItems = (comp.ItemsTable || []).sort(
-          (a, b) => (a.order_num || 0) - (b.order_num || 0),
-        );
+      const sortedItems = (comp.ItemsTable || []).sort(
+        (a, b) => (a.order_num || 0) - (b.order_num || 0)
+      );
 
-        let childrenHTML = sortedItems
-          .map((item) => item.item_code || "")
-          .join("\n");
+      const childrenHTML = sortedItems.map((item) => item.item_code || "").join("\n");
 
-        wrapper = wrapper.replace(/\{children\}/g, childrenHTML);
+      // {children} replace (robust)
+      wrapper = wrapper.replace(/\{children\}/gi, childrenHTML);
 
-        return wrapper;
-      })
-      .join("\n\n");
+      // className → class (iframe mein safe)
+      wrapper = wrapper.replace(/\bclassName=/gi, 'class=');
 
-    const iframeHTML = `<!DOCTYPE html>
+      return wrapper;
+    })
+    .join("\n\n");
+
+  const fontImport = masterJson?.project?.font_import
+    ? `<link href="${masterJson.project.font_import}" rel="stylesheet">`
+    : "";
+
+  const iframeHTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  ${fontImport}
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    // Tailwind config initialize karo – design_system se colors + font use karo
+    tailwind.config = {
+      content: ["**/*"],
+      theme: {
+        extend: {
+          colors: ${JSON.stringify(masterJson?.design_system?.colors || {})},
+          fontFamily: {
+            sans: ['${masterJson?.design_system?.typography?.font_family?.split(',')[0] || "Inter"}', 'system-ui', 'sans-serif']
+          }
+        }
+      }
+    }
+  </script>
   <style>
     * { box-sizing: border-box; }
-    body { margin: 0; padding: 0; background: #09090b; color: white; }
+    body { 
+      margin: 0; 
+      padding: 0; 
+      background: ${masterJson?.design_system?.colors?.background || "#09090b"}; 
+      color: ${masterJson?.design_system?.colors?.text_primary || "white"}; 
+      font-family: ${masterJson?.design_system?.typography?.font_family || "system-ui, sans-serif"}; 
+    }
     .preview-container { min-height: 100vh; }
+    /* Extra safe scrollbar + smooth */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
   </style>
 </head>
 <body>
@@ -87,55 +138,37 @@ export default function ProjectPreview({ params }) {
 </body>
 </html>`;
 
-    iframeRef.current.srcdoc = iframeHTML;
-  };
+  iframeRef.current.srcdoc = iframeHTML;
+};
 
-  // Fetch + Realtime
+  // Realtime setup
   useEffect(() => {
-    if (!params.projectId) return;
+    if (!projectId) return;
 
-    fetchComponents();
+    fetchAll();
 
     const channel = supabase
-      .channel(`preview-${params.projectId}`)
-      .on(
-        "postgres_changes",
-        {
+      .channel(`preview-${projectId}`)
+      .on("postgres_changes", {
           event: "*",
           schema: "public",
           table: "ComponentTable",
-          filter: `project_id=eq.${params.projectId}`,
-        },
-        () => {
-          console.log("New component detected → refreshing");
-          fetchComponents();
-        },
-      )
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "ItemsTable",
-        },
-        () => {
-          console.log("Items changed → refreshing");
-          fetchComponents();
-        },
-      )
+          filter: `project_id=eq.${projectId}`,
+        }, () => fetchAll())
+      .on("postgres_changes", { 
+          event: "*", 
+          schema: "public", 
+          table: "ItemsTable" 
+        }, () => fetchAll())
       .subscribe();
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [params.projectId]);
+    return () => { supabase.removeChannel(channel); };
+  }, [projectId]);
 
-  // Render iframe jab components update hon
+  // Render iframe when data changes
   useEffect(() => {
-    if (components.length > 0) {
-      renderIntoIframe(components);
-    }
-  }, [components]);
+    if (components.length > 0) renderIntoIframe(components);
+  }, [components, masterJson]);
 
   if (error) {
     return (
@@ -147,22 +180,17 @@ export default function ProjectPreview({ params }) {
 
   return (
     <div className="min-h-screen bg-zinc-950 flex flex-col">
-      {/* Top Bar */}
       <div className="fixed top-0 left-0 right-0 z-50 bg-zinc-900/95 backdrop-blur-md border-b border-zinc-800 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <h1 className="text-white font-semibold">
-            {projectName || "Live Preview"}
-          </h1>
-          <span className="text-xs px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/30">
-            LIVE
-          </span>
+          <h1 className="text-white font-semibold">{projectName || "Live Preview"}</h1>
+          <span className="text-xs px-3 py-1 bg-emerald-500/10 text-emerald-400 rounded-full border border-emerald-500/30">LIVE</span>
         </div>
-        <div className="text-zinc-500 text-xs font-mono">
-          {params.projectId}
+        <div className="flex items-center gap-2 text-xs font-mono text-zinc-400">
+          <span>Sections:</span>
+          <span className="bg-zinc-800 px-2 py-0.5 rounded">{components.length} / {totalSections}</span>
         </div>
       </div>
 
-      {/* Iframe Preview */}
       <div className="flex-1 pt-16">
         {loading && components.length === 0 ? (
           <div className="h-full flex flex-col items-center justify-center text-zinc-400">

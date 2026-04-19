@@ -5,7 +5,7 @@ export async function masterService(userMessage) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "nvidia/nemotron-3-super-120b-a12b:free",
+      model: "openrouter/elephant-alpha",
       maxTokens: 10000,
       messages: [{ role: "user", content: buildPrompt(userMessage) }],
     }),
@@ -30,7 +30,7 @@ export async function generateAllComponents(masterJson, sectionId) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      model: "nvidia/nemotron-3-super-120b-a12b:free",
+      model: "openrouter/elephant-alpha",
       maxTokens: 12000,
       messages: [
         { role: "user", content: buildComponentAndItem(masterJson, sectionId) },
@@ -46,44 +46,77 @@ export async function generateAllComponents(masterJson, sectionId) {
       ? data.content
       : (data.content?.[0]?.text ?? "");
 
-  return parseComponentResponse(rawText); 
+  return parseComponentResponse(rawText);
 }
 
-// ─── Naya Parser (Full Code + Items) ─────────────────────────────────────
+// ─── Better Parser ─────────────────────────────────────
 function parseComponentResponse(raw) {
-  const fullCodeMatch = raw.match(/FULL SECTION CODE:([\s\S]*?)(?=ITEMS:|$)/i);
-  const itemsMatch = raw.match(/ITEMS:([\s\S]*)$/i);
-
-  if (!fullCodeMatch) {
-    throw new Error("FULL SECTION CODE not found in AI response");
+  if (!raw || typeof raw !== "string") {
+    throw new Error("Empty response from AI");
   }
 
-  const fullCode = fullCodeMatch[1].trim();
+  // Heavy cleaning
+  let cleaned = raw
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/\*\*[\s\S]*?\*\*/g, "")
+    .replace(/^\s*[\*\-\#]+\s*/gm, "")
+    .trim();
+
+  const fullCodeMatch = cleaned.match(
+    /FULL SECTION CODE:\s*([\s\S]*?)(?=ITEMS:|$)/i,
+  );
+
+  if (!fullCodeMatch || !fullCodeMatch[1].trim()) {
+    console.error("FULL SECTION CODE not found. Raw:", raw.substring(0, 400));
+    // Safe fallback
+    return {
+      component_name: "section",
+      ai_response_code: `<section class="py-20 text-center bg-zinc-900"><h2 class="text-2xl">Section: ${section}</h2></section>`,
+      items: [],
+    };
+  }
+
+  let fullCode = fullCodeMatch[1].trim().replace(/\bclassName=/gi, "class=");
 
   let items = [];
+  const itemsMatch = cleaned.match(/ITEMS:\s*(\[[\s\S]*?\])/i);
+
   if (itemsMatch) {
     try {
-      let itemsStr = itemsMatch[1].trim();
-      // Clean JSON
-      itemsStr = itemsStr.replace(/^```json\s*/i, '').replace(/\s*```$/i, '').trim();
+      let itemsStr = itemsMatch[1]
+        .replace(/\\"/g, '"')
+        .replace(/[\n\r]+/g, " ")
+        .trim();
+
+      // Take only until last valid ]
+      const lastBracket = itemsStr.lastIndexOf("]");
+      if (lastBracket > 10) {
+        itemsStr = itemsStr.substring(0, lastBracket + 1);
+      }
+
       items = JSON.parse(itemsStr);
     } catch (e) {
-      console.error("Items parse failed", e);
+      console.warn(
+        `Items parse failed for section "${section}". Using empty items.`,
+      );
+      console.error("Items string was:", itemsMatch[1].substring(0, 300));
     }
   }
 
   return {
     component_name: "section",
-    ai_response_code: fullCode,        // yeh ComponentTable mein jayega
-    items: items                       // yeh ItemsTable mein jayega
+    ai_response_code: fullCode,
+    items: Array.isArray(items) ? items : [],
   };
 }
-
 // ─── JSON Parser ────────────────────────────────────────────────────────────
 function parseJSON(raw) {
   const stripped = raw
     .replace(/^```(?:json)?\s*/i, "")
     .replace(/\s*```\s*$/, "")
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/\*\*[\s\S]*?\*\*/g, "")
+    .replace(/^\s*[\*\-\#]+\s*/gm, "")
     .trim();
   const start = stripped.indexOf("{");
   const end = stripped.lastIndexOf("}");
@@ -271,46 +304,44 @@ Return this exact JSON structure filled with real values:
 
 // ─── generateComponentPrompt ───────────────────────────────────────────────────
 function buildComponentAndItem(masterJson, section) {
-  return `You are an expert Tailwind + React developer.
-First, generate a beautiful, modern, fully responsive code for this section: "${section}"
-Then break it into logical small editable parts.
-Return in this EXACT format:
+  return `You are a world-class Senior Frontend Engineer (ex-Vercel, ex-Linear, ex-Arc) specializing in premium, modern, luxurious Tailwind + React UIs.
+
+Generate a BEAUTIFUL, high-end, production-ready section for: "${section}"
+
+Return EXACTLY this format. Nothing else. No explanations.
+
 FULL SECTION CODE:
-<section className="flex h-[64px] ...">
+<section class="...">
+  {children}
+</section>
+
+ITEMS:
+[ ... valid JSON array ... ]
+
+=== STRICT PREMIUM RULES (MUST FOLLOW) ===
+- Use only Tailwind utility classes + values from design_system (primary, secondary, accent, background, surface, text_primary etc.).
+- Make it visually stunning: subtle shadows, glassmorphism, perfect spacing, modern typography.
+- Add smooth animations and micro-interactions (hover:scale, transition-all, opacity changes, stagger if possible).
+- Fully responsive (mobile-first): use sm:, md:, lg: prefixes generously.
+- Dark/light friendly where possible.
+- Use real Unsplash URLs for images.
+- Follow layout_globals and section_defaults strictly.
+- No basic templates. Think premium SaaS / luxury restaurant / high-end product site quality.
+
+Few-Shot Example (High Quality Navbar):
+FULL SECTION CODE:
+<section class="fixed inset-x-0 top-0 z-50 flex h-16 items-center justify-between border-b border-white/10 bg-white/80 px-8 backdrop-blur-xl">
   {children}
 </section>
 ITEMS:
 [
-  {
-    "id": "logo-001",
-    "type": "logo",
-    "order_num": 1,
-    "code": "<div className=\"flex items-center space-x-3\"><span className=\"text-xl font-semibold text-primary\">AlexDev</span></div>"
-  },
-  {
-    "id": "nav-links-001",
-    "type": "nav_links",
-    "order_num": 2,
-    "code": "<div className=\"hidden md:flex space-x-6\">...</div>"
-  },
-  {
-    "id": "mobile-menu-001",
-    "type": "mobile_menu",
-    "order_num": 3,
-    "code": "<div className=\"md:hidden\">...</div>"
-  }
+  {"id":"logo","type":"logo","order_num":1,"code":"<div class=\"flex items-center gap-2\"><span class=\"text-2xl font-bold tracking-tighter text-primary\">Gourmet</span></div>"}
 ]
 
-Rules:
-Main Wrapper: Use only the {children} placeholder within the main wrapper.
-Granular Elements: Break down every meaningful section into individual items (e.g., logo, link groups, buttons, cards, headings).
-Sequential Ordering: Ensure the order_num follows a logical flow (left-to-right and top-to-bottom).
-Styling: Use className for all styling within the code.
-Code Constraints: Do not include import statements, export statements, or function definitions.
-Content Only: Provide only the inner HTML/JSX code for items; do not wrap them in a full component structure.
-USe real unsplash url according to requirenment
-Master JSON:
+Master JSON (use this strictly):
 ${JSON.stringify(masterJson, null, 2)}
 
-Generate for section: "${section}"`;
+Now generate ONLY for section: "${section}"
+
+Start your response immediately with "FULL SECTION CODE:"`;
 }

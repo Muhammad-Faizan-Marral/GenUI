@@ -28,6 +28,7 @@ import {
   ComponetsAndItemsSystem,
   convertToDbFormat,
   generateAllComponents,
+  generateCompleteSection,
   generateFullSection,
   generateSectionWithItems,
   masterService,
@@ -75,135 +76,73 @@ export default function PromptPage() {
     return OUTPUTS.login;
   };
 
-  // Master Working
-  const handleGenerate = async () => {
-    if (!prompt.trim()) {
-      setError("Please enter a prompt");
-      return;
+// Master Working - Updated Logic
+const handleGenerate = async () => {
+  if (!prompt.trim()) {
+    setError("Please enter a prompt");
+    return;
+  }
+ 
+  setError(null);
+  setPhase("loading");
+  setLoadingStep(0);
+ 
+  try {
+    console.log("🚀 Generation Started");
+    const userId = await getUserId();
+ 
+    // ── Step 1: Master JSON ───────────────────────────────────────────────────
+    console.log("📝 Generating Master JSON...");
+    const masterJson = await masterService(prompt);
+ 
+    if (!masterJson?.sections?.length) {
+      throw new Error("Master JSON has no sections");
     }
-
-    setError(null);
-    setPhase("loading");
-    setLoadingStep(0);
-
-    try {
-      console.log("🚀 Generation Started");
-
-      const userId = await getUserId();
-      console.log("👤 User ID:", userId);
-
-      // Step 1: Master JSON
-      console.log("📝 Step 1: Generating Master JSON...");
-      const masterJson = await masterService(prompt);
-      console.log("✅ Master JSON Received:", masterJson);
-
-      if (!masterJson?.sections || masterJson.sections.length === 0) {
-        throw new Error("Master JSON has no sections");
-      }
-
-      // Step 2: Save Project to Database
-      console.log("💾 Step 2: Saving Project to Database...");
-      const projectData = await Insert_Project_Tabel_Data(userId, masterJson);
-      console.log("✅ Project Saved:", projectData);
-
-      const projectId = projectData.project_id;
-      console.log("📌 Project ID:", projectId);
-
-      // === IMPORTANT: Foran New Tab Open kar do ===
-      const previewUrl = `/p/${projectId}`;
-      console.log(`🌐 Opening Live Preview: ${previewUrl}`);
-      window.open(previewUrl, "_blank");
-      setProjectViewUrl(previewUrl);
-      setOutput(detectOutput(prompt));
-
-      // Step 3: Generate Components one by one (Two-step AI process)
-      console.log(
-        `🔄 Starting Component Generation for ${masterJson.sections.length} sections...`,
-      );
-
-      for (let i = 0; i < masterJson.sections.length; i++) {
-        const section = masterJson.sections[i];
-        console.log(
-          `\n📍 Processing Section ${i + 1}/${masterJson.sections.length}: ${section.name} (${section.id})`,
-        );
-
-        setLoadingStep(i + 1);
-
-        try {
-          console.log(
-            `🤖 [1/2] Generating Full Premium Section: ${section.id}`,
-          );
-
-          // Step 3.1: Pehli call → Full beautiful section code
-          const fullSectionCode = await generateFullSection(
-            masterJson,
-            section.id,
-          );
-          console.log(`✅ Full Section Code Received for ${section.id}`);
-
-          // Step 3.2: Dusri call → Convert into our DB format (wrapper + items)
-          console.log(`🤖 [2/2] Converting to DB Format: ${section.id}`);
-      
-const aiComponentResponse = await generateSectionWithItems(masterJson, section.id);
-
-          console.log(
-            `✅ DB Format Ready for ${section.id}:`,
-            aiComponentResponse,
-          );
-
-          if (!aiComponentResponse?.ai_response_code) {
-            console.warn(
-              `⚠️ Skipping section ${section.id} - no ai_response_code`,
-            );
-            continue;
-          }
-
-          // Save Component (Main Wrapper)
-          console.log(`💾 Saving Component: ${section.id}`);
-          const savedComponent = await Insert_Component_Tabel_Data(
-            projectId,
-            section.id,
-            aiComponentResponse.ai_response_code,
-            i,
-          );
-          console.log(`✅ Component Saved:`, savedComponent);
-
-          const compId = savedComponent.comp_id;
-
-          // Save Items (Editable parts)
-          if (
-            aiComponentResponse.items &&
-            aiComponentResponse.items.length > 0
-          ) {
-            console.log(
-              `📦 Saving ${aiComponentResponse.items.length} items...`,
-            );
-            await Insert_Item_Tabel_Data(compId, aiComponentResponse.items);
-          } else {
-            console.log(`⚠️ No items found for this component`);
-          }
-        } catch (sectionError) {
-          console.error(`❌ Failed section ${section.id}:`, sectionError);
-          // Continue to next section (ek section fail hone se baaki stop nahi honge)
+    console.log(`✅ Master JSON | ${masterJson.sections.length} sections`);
+ 
+    // ── Step 2: Project Save ──────────────────────────────────────────────────
+    const projectData = await Insert_Project_Tabel_Data(userId, masterJson);
+    const projectId = projectData.project_id;
+    console.log("✅ Project saved | ID:", projectId);
+ 
+    // Preview tab — realtime baaki kaam karega
+    const previewUrl = `/p/${projectId}`;
+    window.open(previewUrl, "_blank");
+    setProjectViewUrl(previewUrl);
+ 
+    // ── Step 3: Har section — single API call ────────────────────────────────
+    for (let i = 0; i < masterJson.sections.length; i++) {
+      const section = masterJson.sections[i];
+      console.log(`\n📍 [${i + 1}/${masterJson.sections.length}] ${section.id}`);
+      setLoadingStep(i + 1);
+ 
+      try {
+        const fullCode = await generateCompleteSection(masterJson, section.id);
+ 
+        if (!fullCode) {
+          console.warn(`⚠️ Empty for "${section.id}" — skipping`);
+          continue;
         }
-      }
-
-      console.log("🎉 All sections processed successfully!");
-      setPhase("done");
-    } catch (err) {
-      console.error("💥 Generation Error:", err);
-      setPhase("prompt");
-
-      if (err.message.includes("JSON")) {
-        setError("AI returned invalid JSON. Try a simpler prompt.");
-      } else if (err.message.includes("API Error")) {
-        setError("AI service is busy. Please try again.");
-      } else {
-        setError(err.message || "Something went wrong.");
+ 
+        await Insert_Component_Tabel_Data(projectId, section.id, fullCode, i);
+        console.log(`✅ "${section.id}" saved`);
+ 
+      } catch (sectionError) {
+        console.error(`❌ "${section.id}" failed:`, sectionError.message);
+        continue;
       }
     }
-  };
-
+ 
+    console.log("\n🎉 All done!");
+    setPhase("done");
+ 
+  } catch (err) {
+    console.error("💥 Error:", err);
+    setPhase("prompt");
+    setError(err.message || "Something went wrong.");
+  }
+};
+ 
   const handleReset = () => {
     setPhase("prompt");
     setPrompt("");

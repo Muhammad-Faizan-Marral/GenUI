@@ -1,9 +1,9 @@
 import { createClient } from "../lib/supabase/client";
 
+// ── Projects Table ────────────────────────────────────────────────────────────
 export async function Insert_Project_Tabel_Data(userId, masterJson) {
   const supabase = createClient();
-
-  console.log("💾 Inserting into projects table | user_id:", userId);
+  console.log("💾 Inserting project | user_id:", userId);
 
   const { data, error } = await supabase
     .from("projects")
@@ -23,18 +23,17 @@ export async function Insert_Project_Tabel_Data(userId, masterJson) {
     throw new Error(`Project save failed: ${error.message}`);
   }
 
-  console.log(
-    "✅ Project inserted successfully | project_id:",
-    data.project_id,
-  );
+  console.log("✅ Project saved | project_id:", data.project_id);
   return data;
 }
 
-// ComponentTable - sirf main wrapper code
+// ── Component Table ───────────────────────────────────────────────────────────
+// Full section code save hota hai — no ItemsTable needed anymore
 export async function Insert_Component_Tabel_Data(
   projectId,
   componentName,
   aiResponseCode,
+  order = 0
 ) {
   const supabase = createClient();
 
@@ -45,34 +44,33 @@ export async function Insert_Component_Tabel_Data(
         project_id: projectId,
         component_name: componentName,
         ai_response_code: aiResponseCode,
+        order: order,
       },
     ])
     .select()
     .single();
 
-  if (error) throw error;
+  if (error) {
+    console.error("❌ Component Insert Error:", error);
+    throw error;
+  }
+
   return data;
 }
 
-// ItemsTable - small parts with order
-export async function Insert_Item_Tabel_Data(compId, itemsArray = []) {
-  if (itemsArray.length === 0) return [];
-
+// ── Update Component (Edit ke liye) ──────────────────────────────────────────
+export async function Update_Component_Code(compId, newCode) {
   const supabase = createClient();
 
-  const itemsToInsert = itemsArray.map((item, index) => ({
-    comp_id: compId,
-    editabel_id: item.id ? String(item.id) : `item-${Date.now()}-${index}`,
-    item_code: item.code,
-    order_num: item.order_num || index + 1,
-    type: item.type,
-  }));
+  const { error } = await supabase
+    .from("ComponentTable")
+    .update({ ai_response_code: newCode })
+    .eq("comp_id", compId);
 
-  const { data, error } = await supabase
-    .from("ItemsTable")
-    .insert(itemsToInsert)
-    .select();
+  if (error) {
+    console.error("❌ Component Update Error:", error);
+    throw error;
+  }
 
-  if (error) throw error;
-  return data;
+  console.log("✅ Component updated | comp_id:", compId);
 }

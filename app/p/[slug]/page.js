@@ -71,6 +71,14 @@ export default function ProjectPreview({ params }) {
 const renderIntoIframe = (comps) => {
   if (!iframeRef.current || comps.length === 0) return;
 
+  const colors = masterJson?.design_system?.colors || {};
+  const typography = masterJson?.design_system?.typography || {};
+  const fontFamily = typography.font_family || "Inter, system-ui, sans-serif";
+  const fontImport = masterJson?.project?.font_import
+    ? `<link href="${masterJson.project.font_import}" rel="stylesheet">`
+    : `<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">`;
+
+  // ── Har component ka HTML assemble karo ───────────────────────────────────
   let fullHTML = comps
     .map((comp) => {
       let wrapper = comp.ai_response_code || "<div></div>";
@@ -79,60 +87,128 @@ const renderIntoIframe = (comps) => {
         (a, b) => (a.order_num || 0) - (b.order_num || 0)
       );
 
-      const childrenHTML = sortedItems.map((item) => item.item_code || "").join("\n");
+      const childrenHTML = sortedItems
+        .map((item) => item.item_code || "")
+        .join("\n");
 
-      // {children} replace (robust)
       wrapper = wrapper.replace(/\{children\}/gi, childrenHTML);
-
-      // className → class (iframe mein safe)
-      wrapper = wrapper.replace(/\bclassName=/gi, 'class=');
+      wrapper = wrapper.replace(/\bclassName=/gi, "class=");
 
       return wrapper;
     })
     .join("\n\n");
 
-  const fontImport = masterJson?.project?.font_import
-    ? `<link href="${masterJson.project.font_import}" rel="stylesheet">`
-    : "";
+  // ── Tailwind config — arbitrary value support ON karo ────────────────────
+  const tailwindConfig = `
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary:   '${colors.primary   || "#6366f1"}',
+            secondary: '${colors.secondary || "#8b5cf6"}',
+            accent:    '${colors.accent    || "#f59e0b"}',
+            surface:   '${colors.surface   || "#111827"}',
+            surface2:  '${colors.surface_2 || "#1f2937"}',
+          },
+          fontFamily: {
+            sans: ['${fontFamily.split(",")[0].trim()}', 'system-ui', 'sans-serif'],
+          },
+        },
+      },
+    };
+  `;
+
+  // ── CSS variables inject karo — bg-primary wagera bhi kaam karen ──────────
+  // AI kabi hardcoded hex deta hai, kabi bg-primary — dono handle honge
+  const cssVars = `
+    :root {
+      --color-primary:      ${colors.primary      || "#6366f1"};
+      --color-secondary:    ${colors.secondary    || "#8b5cf6"};
+      --color-accent:       ${colors.accent       || "#f59e0b"};
+      --color-bg:           ${colors.background   || "#0a0a0a"};
+      --color-surface:      ${colors.surface      || "#111827"};
+      --color-surface2:     ${colors.surface_2    || "#1f2937"};
+      --color-text-primary: ${colors.text_primary || "#f8fafc"};
+      --color-text-muted:   ${colors.text_muted   || "#94a3b8"};
+      --color-border:       ${colors.border       || "rgba(255,255,255,0.08)"};
+    }
+
+    /* ── Reset ─────────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background-color: var(--color-bg) !important;
+      color: var(--color-text-primary);
+      font-family: ${fontFamily};
+      -webkit-font-smoothing: antialiased;
+      min-height: 100vh;
+    }
+
+    /* ── Scrollbar ──────────────────────────────────────── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--color-bg); }
+    ::-webkit-scrollbar-thumb { background: var(--color-surface2); border-radius: 3px; }
+
+    /* ── Tailwind gap — text-text_primary wagera fix ────── */
+    .text-text_primary   { color: var(--color-text-primary) !important; }
+    .text-text_secondary { color: ${colors.text_secondary || "#cbd5e1"} !important; }
+    .text-text_muted     { color: var(--color-text-muted) !important; }
+    .bg-background       { background-color: var(--color-bg) !important; }
+    .bg-surface          { background-color: var(--color-surface) !important; }
+    .bg-surface_2        { background-color: var(--color-surface2) !important; }
+    .border-border       { border-color: var(--color-border) !important; }
+
+    /* ── Gradient text helper ───────────────────────────── */
+    .gradient-text {
+      background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    /* ── Glow helpers ───────────────────────────────────── */
+    .glow-primary {
+      box-shadow: 0 0 40px color-mix(in srgb, var(--color-primary) 30%, transparent);
+    }
+
+    /* ── Section base ───────────────────────────────────── */
+    section {
+      position: relative;
+    }
+
+    /* ── Smooth image loading ───────────────────────────── */
+    img {
+      display: block;
+      max-width: 100%;
+    }
+
+    /* ── Focus styles ───────────────────────────────────── */
+    input:focus, textarea:focus, button:focus {
+      outline: 2px solid var(--color-primary);
+      outline-offset: 2px;
+    }
+  `;
 
   const iframeHTML = `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${masterJson?.project?.name || "Preview"}</title>
   ${fontImport}
-  <script src="https://cdn.tailwindcss.com"></script>
   <script>
-    // Tailwind config initialize karo – design_system se colors + font use karo
-    tailwind.config = {
-      content: ["**/*"],
-      theme: {
-        extend: {
-          colors: ${JSON.stringify(masterJson?.design_system?.colors || {})},
-          fontFamily: {
-            sans: ['${masterJson?.design_system?.typography?.font_family?.split(',')[0] || "Inter"}', 'system-ui', 'sans-serif']
-          }
-        }
-      }
-    }
+    // Tailwind config MUST be set before CDN loads
+    ${tailwindConfig}
   </script>
+  <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    * { box-sizing: border-box; }
-    body { 
-      margin: 0; 
-      padding: 0; 
-      background: ${masterJson?.design_system?.colors?.background || "#09090b"}; 
-      color: ${masterJson?.design_system?.colors?.text_primary || "white"}; 
-      font-family: ${masterJson?.design_system?.typography?.font_family || "system-ui, sans-serif"}; 
-    }
-    .preview-container { min-height: 100vh; }
-    /* Extra safe scrollbar + smooth */
-    ::-webkit-scrollbar { width: 6px; }
-    ::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 3px; }
+    ${cssVars}
   </style>
 </head>
 <body>
-  <div class="preview-container">
+  <div id="preview-root">
     ${fullHTML}
   </div>
 </body>

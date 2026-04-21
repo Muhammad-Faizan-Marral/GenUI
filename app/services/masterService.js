@@ -1,5 +1,6 @@
+// ==================== MASTER JSON SERVICE ====================
 export async function masterService(userMessage) {
-  console.log("📤 Sending request to Master JSON API...");
+  console.log("📤 Generating Master JSON...");
 
   const response = await fetch("/api/grok", {
     method: "POST",
@@ -7,7 +8,7 @@ export async function masterService(userMessage) {
     body: JSON.stringify({
       model: "openrouter/elephant-alpha",
       maxTokens: 10000,
-      messages: [{ role: "user", content: buildPrompt(userMessage) }],
+      messages: [{ role: "user", content: buildMasterPrompt(userMessage) }],
     }),
   });
 
@@ -19,97 +20,10 @@ export async function masterService(userMessage) {
       ? data.content
       : (data.content?.[0]?.text ?? "");
 
-  console.log("📥 Raw Master Response received");
+  console.log("✅ Master JSON Raw Response Received");
   return parseJSON(rawText);
 }
-
-export async function generateAllComponents(masterJson, sectionId) {
-  console.log(`📤 Calling AI for section: ${sectionId}`);
-
-  const response = await fetch("/api/grok", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "openrouter/elephant-alpha",
-      maxTokens: 12000,
-      messages: [
-        { role: "user", content: buildComponentAndItem(masterJson, sectionId) },
-      ],
-    }),
-  });
-
-  if (!response.ok) throw new Error(`API Error: ${response.status}`);
-
-  const data = await response.json();
-  const rawText =
-    typeof data.content === "string"
-      ? data.content
-      : (data.content?.[0]?.text ?? "");
-
-  return parseComponentResponse(rawText);
-}
-
-// ─── Better Parser ─────────────────────────────────────
-function parseComponentResponse(raw) {
-  if (!raw || typeof raw !== "string") {
-    throw new Error("Empty response from AI");
-  }
-
-  // Heavy cleaning
-  let cleaned = raw
-    .replace(/```[\s\S]*?```/g, "")
-    .replace(/\*\*[\s\S]*?\*\*/g, "")
-    .replace(/^\s*[\*\-\#]+\s*/gm, "")
-    .trim();
-
-  const fullCodeMatch = cleaned.match(
-    /FULL SECTION CODE:\s*([\s\S]*?)(?=ITEMS:|$)/i,
-  );
-
-  if (!fullCodeMatch || !fullCodeMatch[1].trim()) {
-    console.error("FULL SECTION CODE not found. Raw:", raw.substring(0, 400));
-    // Safe fallback
-    return {
-      component_name: "section",
-      ai_response_code: `<section class="py-20 text-center bg-zinc-900"><h2 class="text-2xl">Section: ${section}</h2></section>`,
-      items: [],
-    };
-  }
-
-  let fullCode = fullCodeMatch[1].trim().replace(/\bclassName=/gi, "class=");
-
-  let items = [];
-  const itemsMatch = cleaned.match(/ITEMS:\s*(\[[\s\S]*?\])/i);
-
-  if (itemsMatch) {
-    try {
-      let itemsStr = itemsMatch[1]
-        .replace(/\\"/g, '"')
-        .replace(/[\n\r]+/g, " ")
-        .trim();
-
-      // Take only until last valid ]
-      const lastBracket = itemsStr.lastIndexOf("]");
-      if (lastBracket > 10) {
-        itemsStr = itemsStr.substring(0, lastBracket + 1);
-      }
-
-      items = JSON.parse(itemsStr);
-    } catch (e) {
-      console.warn(
-        `Items parse failed for section "${section}". Using empty items.`,
-      );
-      console.error("Items string was:", itemsMatch[1].substring(0, 300));
-    }
-  }
-
-  return {
-    component_name: "section",
-    ai_response_code: fullCode,
-    items: Array.isArray(items) ? items : [],
-  };
-}
-// ─── JSON Parser ────────────────────────────────────────────────────────────
+// ── JSON Parser ───────────────────────────────────────────────────────────────
 function parseJSON(raw) {
   const stripped = raw
     .replace(/^```(?:json)?\s*/i, "")
@@ -118,6 +32,7 @@ function parseJSON(raw) {
     .replace(/\*\*[\s\S]*?\*\*/g, "")
     .replace(/^\s*[\*\-\#]+\s*/gm, "")
     .trim();
+
   const start = stripped.indexOf("{");
   const end = stripped.lastIndexOf("}");
 
@@ -125,17 +40,146 @@ function parseJSON(raw) {
     throw new Error("No JSON object found in response");
   }
 
-  const jsonStr = stripped.slice(start, end + 1);
-
   try {
-    return JSON.parse(jsonStr);
+    return JSON.parse(stripped.slice(start, end + 1));
   } catch (err) {
     throw new Error(`JSON parse failed: ${err.message}`);
   }
 }
+// ==================== FULL SECTION GENERATION ====================
+export async function generateFullSection(masterJson, sectionId) {
+  console.log(`🤖 Generating FULL premium section: ${sectionId}`);
 
-// ─── Prompt ────────────────────────────────────────────────────────────────────
-function buildPrompt(userMessage) {
+  const response = await fetch("/api/grok", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "openrouter/elephant-alpha",
+      maxTokens: 15000,
+      messages: [
+        {
+          role: "user",
+          content: buildFullSectionPrompt(masterJson, sectionId),
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok)
+    throw new Error(`Full Section API Error: ${response.status}`);
+
+  const data = await response.json();
+  const rawText =
+    typeof data.content === "string"
+      ? data.content
+      : (data.content?.[0]?.text ?? "");
+
+  // Simple cleaning
+  return rawText
+    .replace(/```(?:jsx|html|tsx)?/gi, "")
+    .replace(/```/g, "")
+    .trim();
+}
+
+// ==================== CONVERT TO DB FORMAT ====================
+export async function convertToDbFormat(
+  fullSectionCode,
+  sectionId,
+  masterJson,
+) {
+  console.log(`🤖 [2/2] Converting to DB Format: ${sectionId}`);
+
+  const safeCode =
+    fullSectionCode.length > 12000
+      ? fullSectionCode.substring(0, 12000) + "\n..."
+      : fullSectionCode;
+
+  const response = await fetch("/api/grok", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "openrouter/elephant-alpha",
+      maxTokens: 10000,
+      messages: [
+        {
+          role: "user",
+          content: buildConverterPrompt(safeCode, sectionId),
+        },
+      ],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    console.error(`Converter API Failed ${response.status}:`, errorText);
+    throw new Error(`Converter API Error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const rawText =
+    typeof data.content === "string"
+      ? data.content
+      : (data.content?.[0]?.text ?? "");
+
+  return parseComponentResponse(rawText, sectionId, fullSectionCode);
+}
+// ── Universal Converter Prompt ────────────────────────────────────────────────
+function buildConverterPrompt(fullSectionCode, sectionId) {
+  return `You are a code analyzer. Look at this JSX/HTML section code and split it into a wrapper and items.
+ 
+SECTION ID: "${sectionId}"
+ 
+━━━ INPUT CODE ━━━
+${fullSectionCode}
+━━━ END INPUT ━━━
+ 
+━━━ HOW TO DECIDE WHAT BECOMES AN ITEM ━━━
+Look at the code carefully. Ask yourself:
+"Are there multiple elements that have the SAME structure but DIFFERENT data/content?"
+ 
+Examples of repeating patterns = items:
+- 3 cards with same layout but different title/description/image → each card is an item
+- 5 nav links with same <a> structure but different href/label → each link is an item  
+- 4 stat boxes with same design but different number/label → each stat is an item
+- 6 menu dishes with same card layout but different name/price → each dish is an item
+- 3 team members with same card structure but different photo/name → each member is an item
+- 8 skill badges with same design but different skill name → each badge is an item
+ 
+Examples of NON-repeating = stays in wrapper:
+- One hero heading + one paragraph + one background blob → no items, wrapper only
+- One contact form with input fields → no items, wrapper only  
+- One reservation form → no items, wrapper only
+- Decorative background elements, blobs, gradients → always wrapper
+- Section heading/subheading → always wrapper
+- A single unique CTA button that is not part of a repeating group → wrapper
+ 
+━━━ DECISION RULE ━━━
+If you find 2 or more elements with same structure, different data → extract as items
+If nothing repeats → items = [] and wrapper = full original code unchanged
+ 
+━━━ OUTPUT FORMAT — EXACTLY THIS, NOTHING ELSE ━━━
+ 
+WRAPPER:
+[full section code with {children} where the repeating items were — OR full original code if no items]
+ 
+ITEMS_JSON:
+[{"id":"unique-id","type":"descriptive_type","order_num":1,"label":"short label","code":"<div class='...'>complete single item html</div>"}]
+ 
+━━━ STRICT RULES ━━━
+1. Start your response with "WRAPPER:" — nothing before it
+2. After wrapper code, write "ITEMS_JSON:" on a new line
+3. ITEMS_JSON value must be a valid JSON array on a SINGLE LINE — no line breaks inside
+4. If no items: ITEMS_JSON: []
+5. If items exist: wrapper must have {children} exactly where items were
+6. If no items: wrapper must be full original code — do NOT add {children} anywhere
+7. In "code" field: use ONLY single quotes for all HTML attribute values
+8. Keep ALL class/className values exactly as they are — do not simplify
+9. No markdown backticks, no explanation text, nothing outside the format above`;
+}
+
+// ==================== PROMPTS ====================
+
+function buildMasterPrompt(userMessage) {
   return `You are a UI architect. Analyze the user's request and return ONLY a valid JSON schema. No markdown, no backticks, no explanation. Start with { and end with }.
 
 USER REQUEST: "${userMessage}"
@@ -223,11 +267,9 @@ Return this exact JSON structure filled with real values:
 
   "generation_control": {
     "total_sections": "number — total count of sections in the sections array below",
-    "sections_list": [
-      "string — ordered list of section IDs e.g. ['navbar', 'hero', 'about', 'skills', 'projects', 'contact', 'footer']"
-    ],
+    "sections_list": ["string — ordered list of section IDs"],
     "done": false,
-    "done_rule": "The frontend reads this field after receiving each AI response. When done is true, stop the generation loop. The AI sets done to true only when returning the final section's code."
+    "done_rule": "Frontend reads this after each AI response. When done is true, stop loop."
   },
 
   "sections": [
@@ -239,17 +281,15 @@ Return this exact JSON structure filled with real values:
       "layout": {
         "type": "enum: full_width | contained | split | grid | centered",
         "min_height": "string — e.g. '100vh' for hero, 'auto' for everything else",
-        "position": "enum: static | fixed | sticky — navbar is fixed, all others static",
-        "z_index": "number | null — 50 for navbar only, null for all others",
-        "padding_top_override": "string | null — only set if this section needs special top padding beyond the page_wrapper default"
+        "position": "enum: static | fixed | sticky",
+        "z_index": "number | null",
+        "padding_top_override": "string | null"
       },
-      "components": [
-        "string — list of UI components in this section e.g. 'Logo', 'NavLinks', 'CTAButton', 'MobileMenu'"
-      ],
+      "components": ["string — list of UI components"],
       "responsive": {
-        "mobile": "string — e.g. 'hamburger menu, stacked layout'",
-        "tablet": "string — e.g. 'condensed nav'",
-        "desktop": "string — e.g. 'full horizontal nav with CTA'"
+        "mobile": "string",
+        "tablet": "string",
+        "desktop": "string"
       },
       "content": {
         "heading": "string | null",
@@ -260,8 +300,8 @@ Return this exact JSON structure filled with real values:
         "items": []
       },
       "style": {
-        "background": "string — use a value from design_system.colors or a specific hex/rgba",
-        "custom_tailwind": "string | null — any extra Tailwind classes specific to this section"
+        "background": "string",
+        "custom_tailwind": "string | null"
       }
     }
   ],
@@ -273,75 +313,214 @@ Return this exact JSON structure filled with real values:
       "use_className_not_class": true,
       "no_html_comments": true,
       "svg_props_camelCase": true,
-      "inline_style_format": "style={{ color: 'red', fontSize: '16px' }}",
+      "inline_style_format": "style={{ color: 'red' }}",
       "include_use_client_when_needed": true,
       "include_react_imports_when_needed": true
-    },
-    "layout_rules": {
-      "navbar_is_fixed_z50": true,
-      "hero_must_have_padding_top_equal_to_navbar_height": true,
-      "all_sections_use_section_defaults_unless_overridden": true,
-      "no_section_should_overlap_another": true
-    },
-    "quality_rules": {
-      "premium_ui": true,
-      "smooth_tailwind_animations": true,
-      "fully_responsive": true,
-      "follow_design_system_strictly": true,
-      "visual_consistency_over_creativity": true
     }
   },
 
   "completion_signal": {
-    "description": "This object is returned by the AI alongside the final section's code. The frontend polls this to decide whether to continue or stop.",
     "done": false,
-    "last_section_generated": "string — ID of the last section that was just generated",
+    "last_section_generated": "",
     "total_generated": 0,
-    "message": "string — e.g. 'All sections generated. Website is complete.'"
+    "message": ""
   }
 }`;
 }
 
-// ─── generateComponentPrompt ───────────────────────────────────────────────────
-function buildComponentAndItem(masterJson, section) {
-  return `You are a world-class Senior Frontend Engineer (ex-Vercel, ex-Linear, ex-Arc) specializing in premium, modern, luxurious Tailwind + React UIs.
+// ── 1. Full Premium Section Prompt ─────────────────────────────────────
+function buildFullSectionPrompt(masterJson, sectionId) {
+  return `You are a Senior Frontend Engineer creating **premium luxury websites**.
 
-Generate a BEAUTIFUL, high-end, production-ready section for: "${section}"
+Here is complete MasterJson : ${masterJson}
+Create only this section : ${sectionId}
+Must follow STRICT REQUIREMENTS and create code only ${sectionId}
+━━━ STRICT REQUIREMENTS ━━━
+- Return **ONLY** one complete <section> or <nav> or <footer> tag.
+- Make it extremely beautiful, modern, and premium.
+- Use real dummy content according to the section.
+- Make it fully responsive (mobile-first).
+- Do NOT use {children}, placeholders, or comments like "// replace with image".
+- Do NOT add any explanation. Just return the clean code.
+- Follow Json theme and make it premium Ui.
 
-Return EXACTLY this format. Nothing else. No explanations.
 
-FULL SECTION CODE:
+Return only the code like this example:
+
+<section className="relative ...">
+  {/* all beautiful content */}
+</section>`;
+}
+
+// ── Parser ────────────────────────────────────────────────────────────────────
+function parseComponentResponse(rawText, sectionId, fallbackCode) {
+  if (!rawText) throw new Error("Empty response from converter");
+ 
+  const cleaned = rawText.replace(/```[\s\S]*?```/g, "").trim();
+ 
+  // ── Wrapper extract ──────────────────────────────────────────────────────
+  const wrapperMatch = cleaned.match(/WRAPPER:\s*([\s\S]*?)(?=\nITEMS_JSON:)/i);
+  let ai_response_code = wrapperMatch
+    ? wrapperMatch[1].trim()
+    : fallbackCode;
+ 
+  // ── Items extract ────────────────────────────────────────────────────────
+  let items = [];
+  const itemsMatch = cleaned.match(/ITEMS_JSON:\s*(\[[\s\S]*?\])\s*$/im);
+ 
+  if (itemsMatch) {
+    try {
+      const parsed = JSON.parse(itemsMatch[1]);
+      items = Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      console.warn(`⚠️ Items JSON parse failed for "${sectionId}":`, e.message);
+      // Parse fail → original full code as wrapper, no items
+      ai_response_code = fallbackCode;
+      items = [];
+    }
+  }
+ 
+  // ── Safety checks ────────────────────────────────────────────────────────
+ 
+  // Items hain but {children} wrapper mein nahi → inject karo
+  if (items.length > 0 && !ai_response_code.includes("{children}")) {
+    ai_response_code = ai_response_code.replace(
+      /(<\/(section|div|main|nav|aside|footer|header)>\s*)$/i,
+      "\n  {children}\n</$2>"
+    );
+  }
+ 
+  // Items nahi hain but {children} wrapper mein aa gaya → hata do
+  if (items.length === 0 && ai_response_code.includes("{children}")) {
+    ai_response_code = ai_response_code.replace(/\{children\}/g, "");
+  }
+ 
+  // className → class (iframe rendering ke liye)
+  ai_response_code = ai_response_code.replace(/\bclassName=/gi, "class=");
+ 
+  console.log(
+    `✅ Parsed "${sectionId}" | Items: ${items.length} | {children}: ${ai_response_code.includes("{children}")}`
+  );
+ 
+  return {
+    component_name: sectionId,
+    ai_response_code: ai_response_code.trim(),
+    items,
+  };
+}
+
+ // masterService.js
+export async function generateSectionWithItems(masterJson, sectionId) {
+  console.log(`🤖 Generating Section: ${sectionId}`);
+
+  const prompt = buildProductionPrompt(masterJson, sectionId);
+
+  const response = await fetch("/api/grok", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: "openrouter/elephant-alpha",
+      maxTokens: 15000,
+      messages: [{ role: "user", content: prompt }],
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unknown error");
+    console.error(`API Error ${response.status}:`, errorText);
+    throw new Error(`Section Generation Error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  const rawText = typeof data.content === "string" 
+    ? data.content 
+    : (data.content?.[0]?.text ?? "");
+
+  return parseProductionResponse(rawText, sectionId);
+}
+
+// ==================== STRONG PRODUCTION PROMPT ==============
+function buildProductionPrompt(masterJson, sectionId) {
+  const project = masterJson.project || {};
+  const colors = masterJson.design_system?.colors || {};
+  const sectionData = masterJson.sections?.find(s => s.id === sectionId) || {};
+
+  return `You are an expert frontend developer building high-end websites.
+
+Project Name: "${project.name || 'Premium Website'}"
+Style: "${project.style || 'modern elegant'}"
+Section: "${sectionId}" (${sectionData.name || ''})
+
+Create this section in **premium quality**.
+
+Return **EXACTLY** this format and nothing else:
+
+FULL SECTION WRAPPER:
 <section class="...">
+  ... complete beautiful Tailwind + JSX code ...
   {children}
 </section>
 
-ITEMS:
-[ ... valid JSON array ... ]
-
-=== STRICT PREMIUM RULES (MUST FOLLOW) ===
-- Use only Tailwind utility classes + values from design_system (primary, secondary, accent, background, surface, text_primary etc.).
-- Make it visually stunning: subtle shadows, glassmorphism, perfect spacing, modern typography.
-- Add smooth animations and micro-interactions (hover:scale, transition-all, opacity changes, stagger if possible).
-- Fully responsive (mobile-first): use sm:, md:, lg: prefixes generously.
-- Dark/light friendly where possible.
-- Use real Unsplash URLs for images.
-- Follow layout_globals and section_defaults strictly.
-- No basic templates. Think premium SaaS / luxury restaurant / high-end product site quality.
-
-Few-Shot Example (High Quality Navbar):
-FULL SECTION CODE:
-<section class="fixed inset-x-0 top-0 z-50 flex h-16 items-center justify-between border-b border-white/10 bg-white/80 px-8 backdrop-blur-xl">
-  {children}
-</section>
 ITEMS:
 [
-  {"id":"logo","type":"logo","order_num":1,"code":"<div class=\"flex items-center gap-2\"><span class=\"text-2xl font-bold tracking-tighter text-primary\">Gourmet</span></div>"}
+  {
+    "id": "item-1",
+    "type": "card|link|stat|menu_item|table_row",
+    "order_num": 1,
+    "label": "Item label",
+    "code": "<div class='...'>one repeatable piece only with single quotes</div>"
+  }
 ]
 
-Master JSON (use this strictly):
-${JSON.stringify(masterJson, null, 2)}
+Rules:
+- Make it visually stunning and modern.
+- Hardcode hex colors.
+- Use {children} where repeatable content (cards, menu items, stats, etc.) should go.
+- If no repeatable items, use [] and still put {children} at logical place.
+- Use single quotes in all "code" fields.
+- No explanations, no markdown, no extra text.
 
-Now generate ONLY for section: "${section}"
+Start directly with "FULL SECTION WRAPPER:"`;
+}
 
-Start your response immediately with "FULL SECTION CODE:"`;
+// ==================== ROBUST PARSER ====================
+function parseProductionResponse(rawText, sectionId) {
+  if (!rawText) throw new Error("Empty AI response");
+
+  let cleaned = rawText.replace(/```[\s\S]*?```/g, "").trim();
+
+  // Extract Wrapper
+  const wrapperMatch = cleaned.match(/FULL SECTION WRAPPER:\s*([\s\S]*?)(?=ITEMS:|$)/i);
+  let ai_response_code = wrapperMatch 
+    ? wrapperMatch[1].trim() 
+    : cleaned.split("ITEMS:")[0]?.trim() || cleaned;
+
+  // Ensure {children}
+  if (!ai_response_code.includes("{children}")) {
+    ai_response_code = ai_response_code.replace(
+      /<\/(section|div|main|nav|footer)>\s*$/i,
+      "\n{children}\n</$1>"
+    );
+  }
+
+  // Extract Items
+  let items = [];
+  const itemsMatch = cleaned.match(/ITEMS:\s*(\[[\s\S]*?\])/i);
+  if (itemsMatch) {
+    try {
+      items = JSON.parse(itemsMatch[1]);
+    } catch (e) {
+      console.warn(`Items parse failed for ${sectionId}`);
+    }
+  }
+
+  ai_response_code = ai_response_code.replace(/\bclassName=/gi, "class=");
+
+  console.log(`✅ Parsed ${sectionId} | Items count: ${items.length}`);
+
+  return {
+    component_name: sectionId,
+    ai_response_code: ai_response_code.trim(),
+    items: Array.isArray(items) ? items : [],
+  };
 }

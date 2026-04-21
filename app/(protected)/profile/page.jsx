@@ -5,11 +5,22 @@ import { createClient } from "../../lib/supabase/client";
 import { useProfile } from "../../hooks/useProfile";
 import { useRouter } from "next/navigation";
 import { getUserId } from "../../services/uiService";
-import {Sparkles,LogOut,ExternalLink,LayoutGrid,User,ChevronRight,Layers,FolderOpen,Copy,Check,Trash2,} from "lucide-react";
+import {
+  Sparkles,
+  LogOut,
+  ExternalLink,
+  LayoutGrid,
+  User,
+  ChevronRight,
+  Layers,
+  FolderOpen,
+  Copy,
+  Check,
+  Trash2,
+} from "lucide-react";
 import Link from "next/link";
 
-
-// ─── Delete Confirm Modal ─────────────────────────────────────────────────────
+// ─── Delete Confirm Modal ──────────────────────────────────────────────────
 function DeleteModal({ project, onConfirm, onCancel, deleting }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center px-4">
@@ -28,7 +39,7 @@ function DeleteModal({ project, onConfirm, onCancel, deleting }) {
         </h3>
         <p className="text-xs text-zinc-500 text-center mb-5 leading-relaxed">
           <span className="text-zinc-300">
-            &quot;{project.project_title}&quot;
+            &quot;{project.project_name}&quot;
           </span>{" "}
           permanently delete ho jayega. Yeh action undo nahi ho sakta.
         </p>
@@ -52,7 +63,7 @@ function DeleteModal({ project, onConfirm, onCancel, deleting }) {
   );
 }
 
-// ─── Project Card ─────────────────────────────────────────────────────────────
+// ─── Project Card ────────────────────────────────────────────────────────
 function ProjectCard({ project, onDelete }) {
   const [copied, setCopied] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -60,7 +71,7 @@ function ProjectCard({ project, onDelete }) {
 
   const currentOrigin =
     typeof window !== "undefined" ? window.location.origin : "";
-  const previewUrl = `${currentOrigin}/p/${project.slug}`;
+  const previewUrl = `${currentOrigin}/p/${project.project_id}`;
 
   const handlePreview = () => {
     window.open(previewUrl, "_blank");
@@ -74,7 +85,7 @@ function ProjectCard({ project, onDelete }) {
 
   const handleDeleteConfirm = async () => {
     setDeleting(true);
-    await onDelete(project.id);
+    await onDelete(project.project_id);
     setDeleting(false);
     setShowDeleteModal(false);
   };
@@ -105,7 +116,7 @@ function ProjectCard({ project, onDelete }) {
           </div>
 
           {/* Action buttons — visible on hover */}
-          <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-all duration-200">
+          <div className="absolute top-2.5 right-2.5 flex items-center gap-1.5  sm:opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-all duration-200">
             {/* Copy URL */}
             <button
               onClick={handleCopy}
@@ -133,7 +144,7 @@ function ProjectCard({ project, onDelete }) {
         {/* Card body — title + preview button */}
         <div className="p-4 flex items-center justify-between gap-3">
           <h3 className="text-sm font-semibold text-white leading-tight truncate flex-1">
-            {project.project_title}
+            {project.project_name}
           </h3>
 
           <button
@@ -149,7 +160,7 @@ function ProjectCard({ project, onDelete }) {
   );
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Main Page ─────────────────────────────────────────────────────────────
 export default function ProfilePage() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -157,19 +168,20 @@ export default function ProfilePage() {
 
   const supabase = createClient();
   const { profile } = useProfile();
-  console.log("Page of profile data is :" + profile)
+  console.log("Page of profile data is :" + profile);
   useEffect(() => {
     async function fetchProjects() {
       try {
         const userId = await getUserId();
-        
+
         const { data, error } = await supabase
           .from("projects")
-          .select("id, project_title, slug, created_at")
+          .select("user_id,project_name,project_id")
           .eq("user_id", userId)
           .order("created_at", { ascending: false });
 
         if (error) throw new Error(error.message);
+        console.log("projects data ", data);
         setProjects(data || []);
       } catch (err) {
         console.error("Failed to fetch projects:", err.message);
@@ -186,7 +198,7 @@ export default function ProfilePage() {
     const { error } = await supabase
       .from("projects")
       .delete()
-      .eq("id", projectId);
+      .eq("project_id", projectId);
 
     if (error) {
       console.error("Delete failed:", error.message);
@@ -260,7 +272,7 @@ export default function ProfilePage() {
             <div className="flex-1 min-w-0">
               {profile ? (
                 <h1 className="text-lg font-bold text-white tracking-tight truncate">
-                  @{profile.username}
+                  @{profile}
                 </h1>
               ) : (
                 <div className="h-5 w-32 bg-white/[0.06] rounded-md animate-pulse" />
@@ -304,9 +316,9 @@ export default function ProfilePage() {
             </div>
           ) : projects.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {projects.map((project) => (
+              {projects.map((project, index) => (
                 <ProjectCard
-                  key={project.id}
+                  key={index}
                   project={project}
                   onDelete={handleDelete}
                 />

@@ -105,10 +105,10 @@ const handleGenerate = async () => {
     const projectId = projectData.project_id;
     console.log("✅ Project saved | ID:", projectId);
  
-    // Preview tab — realtime baaki kaam karega
+    // Preview URL set karna
     const previewUrl = `/p/${projectId}`;
-    window.open(previewUrl, "_blank");
     setProjectViewUrl(previewUrl);
+    // Note: window.open yahan optional hai, ResultCard link provide karega
  
     // ── Step 3: Har section — single API call ────────────────────────────────
     for (let i = 0; i < masterJson.sections.length; i++) {
@@ -134,6 +134,19 @@ const handleGenerate = async () => {
     }
  
     console.log("\n🎉 All done!");
+
+    // ── Step 4: ResultCard ke liye data prepare karein ────────────────────────
+    // Hum detectOutput function use karke label aur UI type set kar rahe hain
+    const detectedInfo = detectOutput(prompt);
+    
+    setOutput({
+      id: projectId,
+      label: detectedInfo.label,
+      previewId: detectedInfo.previewId, // Agar specific preview ki zarurat ho
+      timestamp: new Date().toISOString(),
+      sectionsCount: masterJson.sections.length
+    });
+
     setPhase("done");
  
   } catch (err) {
